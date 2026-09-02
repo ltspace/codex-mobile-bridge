@@ -18,9 +18,27 @@ English | [简体中文](./README.zh-CN.md)
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
+## Interface preview
+
+> [!NOTE]
+> Every conversation, path, metric, and result shown below is fictional demo
+> data created for documentation. No personal or production information is
+> included.
+
+<p align="center">
+  <img src="docs/screenshots/desktop-light.png" alt="Desktop light mode showing a fictional Codex engineering conversation" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/mobile-light.png" alt="Mobile light mode showing a fictional conversation with Markdown rendering" width="390">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-dark.png" alt="Mobile dark mode showing the same fictional Codex engineering conversation" width="390">
+</p>
+
 ## Features
 
 - Search, open, and create Codex conversations.
+- Render responses with Markdown, clickable links, tables, and code blocks.
 - Send messages, steer or stop active turns, and handle supported approval and
   user-input requests.
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
@@ -28,7 +46,7 @@ English | [简体中文](./README.zh-CN.md)
 - Load the latest 10 turns first and fetch large tool details only when opened.
 - Compress HTTP responses and cache only the static application shell.
 - Recover through a scheduled watchdog and support verified blue-green restarts.
-- Switch the web interface between English and Simplified Chinese.
+- Switch between dark and light themes, and between English and Simplified Chinese.
 - Run without runtime npm dependencies.
 
 ## Requirements

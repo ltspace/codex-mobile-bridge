@@ -18,15 +18,32 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
+## 界面预览
+
+> [!NOTE]
+> 下方出现的会话、路径、指标和结果均为专门制作的虚构演示数据，不包含
+> 任何个人信息或生产数据。
+
+<p align="center">
+  <img src="docs/screenshots/desktop-light.png" alt="桌面端白色模式，展示虚构的 Codex 工程会话" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/mobile-light.png" alt="手机端白色模式，展示虚构会话和 Markdown 渲染" width="390">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-dark.png" alt="手机端深色模式，展示相同的虚构 Codex 工程会话" width="390">
+</p>
+
 ## 功能
 
 - 搜索、打开和新建 Codex 会话。
+- 使用 Markdown 渲染回复，并支持可点击链接、表格和代码块。
 - 发送消息、追加或停止活动任务，并处理支持的审批和用户输入请求。
 - 通过 SSE 实时接收回复，支持心跳、有限事件重放和重连后的增量同步。
 - 首次加载最近 10 轮，大型工具详情只在打开时获取。
 - 压缩 HTTP 响应，只缓存静态应用资源。
 - 通过计划任务 watchdog 自动恢复，并支持经过验证的蓝绿重启。
-- 在英文和简体中文界面之间切换。
+- 在深色和白色主题之间切换，也可切换英文和简体中文界面。
 - 没有运行时 npm 依赖。
 
 ## 环境要求
