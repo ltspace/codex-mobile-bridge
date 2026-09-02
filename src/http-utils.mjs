@@ -122,10 +122,15 @@ export function serveStatic(request, response, publicDir, pathname, id) {
   const stat = statSync(filePath);
   if (!stat.isFile()) return false;
   const contentType = MIME_TYPES[extname(filePath)] || "application/octet-stream";
+  const isServiceWorker = requested === "service-worker.js";
+  const staticCacheHeaders = {
+    "Cache-Control": isServiceWorker ? "no-cache, no-store, must-revalidate" : "no-cache",
+    ...(isServiceWorker ? { "Service-Worker-Allowed": "/" } : {}),
+  };
   const encoding = preferredEncoding(request, contentType, stat.size);
   const etag = `"${createHash("sha1").update(`${stat.size}:${stat.mtimeMs}:${encoding || "identity"}`).digest("hex")}"`;
   if (request.headers["if-none-match"] === etag) {
-    response.writeHead(304, { ...commonHeaders(id), ETag: etag, "Cache-Control": "no-cache", Vary: "Accept-Encoding" });
+    response.writeHead(304, { ...commonHeaders(id), ...staticCacheHeaders, ETag: etag, Vary: "Accept-Encoding" });
     response.end();
     return true;
   }
@@ -133,7 +138,7 @@ export function serveStatic(request, response, publicDir, pathname, id) {
     ...commonHeaders(id),
     "Content-Type": contentType,
     ...(!encoding ? { "Content-Length": stat.size } : { "Content-Encoding": encoding }),
-    "Cache-Control": "no-cache",
+    ...staticCacheHeaders,
     Vary: "Accept-Encoding",
     ETag: etag,
   });

@@ -2,6 +2,23 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## 0.6.0 - 2026-09-02
+
+### Added
+
+- Browser-menu installation guidance without an intrusive in-app prompt.
+- Dedicated maskable icon metadata and a new-conversation app shortcut.
+- Automated PWA manifest, lifecycle, cache-boundary, and server-header checks.
+
+### Changed
+
+- Navigations now fall back to the cached shell after a short network-first
+  window, while all API and conversation responses remain uncached.
+- Service-worker upgrades follow the default waiting lifecycle and activate
+  after current clients close, avoiding both mixed resources and in-app prompts.
+- Standalone safe-area, drawer positioning, viewport fallback, and overscroll
+  behavior are tuned for mobile app windows.
+
 ## 0.5.0 - 2026-09-02
 
 ### Added

@@ -16,6 +16,7 @@ import { createMessageView } from "./modules/messages.js";
 import { EventStreamController } from "./modules/event-stream.js";
 import { state } from "./modules/state.js";
 import { hasStoredLanguage, language, setLanguage, t, toggleLanguage, translateDocument } from "./modules/i18n.js";
+import { createPwaController } from "./modules/pwa.js";
 
 translateDocument(document);
 
@@ -140,6 +141,8 @@ function toast(message) {
   elements.toast.classList.remove("hidden");
   toastTimer = setTimeout(() => elements.toast.classList.add("hidden"), 1800);
 }
+
+const pwaController = createPwaController();
 
 function openDrawer() {
   document.body.classList.add("drawer-open");
@@ -824,6 +827,7 @@ document.addEventListener("visibilitychange", () => {
     state.eventStream?.start();
     refreshHealth();
     void syncSelectedThread();
+    void pwaController.checkForUpdate();
   }
 });
 window.addEventListener("online", () => {
@@ -846,11 +850,19 @@ document.addEventListener("bridge:languagechange", () => {
   if (!elements.connectionModal.classList.contains("hidden")) renderConnectionDetails(state.snapshot);
 });
 
-setConnection("connecting", false);
+setConnection(navigator.onLine ? "connecting" : "offline", false);
 renderMessages();
 connectEvents();
 setInterval(() => state.eventStream?.checkLiveness(), 15_000);
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+void pwaController.start();
+
+const launchUrl = new URL(window.location.href);
+if (launchUrl.searchParams.get("action") === "new") {
+  launchUrl.searchParams.delete("action");
+  launchUrl.searchParams.delete("source");
+  window.history.replaceState({}, "", `${launchUrl.pathname}${launchUrl.search}${launchUrl.hash}`);
+  void openNewThread();
+}
 Promise.all([
   refreshHealth(),
   loadThreads({ preserveSelection: false }),

@@ -54,7 +54,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.5.0");
+  assert.equal(health.version, "0.6.0");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -76,6 +76,15 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.match(await markdownModule.text(), /export function markdownToHtml/);
   const serviceWorker = await fetch(`${baseUrl}/service-worker.js`);
   assert.equal(serviceWorker.status, 200);
+  assert.equal(serviceWorker.headers.get("service-worker-allowed"), "/");
+  assert.match(serviceWorker.headers.get("cache-control"), /no-store/);
+  const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
+  assert.equal(manifestResponse.status, 200);
+  const manifest = await manifestResponse.json();
+  assert.equal(manifest.id, "/");
+  assert.equal(manifest.scope, "/");
+  assert.equal(manifest.shortcuts[0].url, "/?source=pwa&action=new");
+  assert.ok(manifest.icons.some((icon) => icon.purpose === "maskable"));
 
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
@@ -129,6 +138,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.requestsTotal >= 5);
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.5.0"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.0"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

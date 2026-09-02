@@ -48,6 +48,7 @@
   --modal-overlay: rgb(0 0 0 / .7);
   --drawer-overlay: rgb(0 0 0 / .55);
   --drawer-shadow: #000a;
+  --topbar-height: calc(58px + env(safe-area-inset-top));
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -104,8 +105,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
-body { height: 100dvh; overflow: hidden; font-size: 15px; line-height: 1.5; }
+html, body { height: 100%; margin: 0; min-height: 100%; background: var(--bg); color: var(--text); overscroll-behavior: none; }
+body { height: 100vh; height: 100dvh; overflow: hidden; font-size: 15px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
 button, input, textarea { font: inherit; }
 button { color: inherit; cursor: pointer; touch-action: manipulation; }
 button:disabled { cursor: default; opacity: .45; }
@@ -116,8 +117,8 @@ input, textarea { color: var(--text); }
 .topbar {
   position: relative;
   z-index: 12;
-  min-height: 58px;
-  padding: max(9px, env(safe-area-inset-top)) 14px 9px;
+  min-height: var(--topbar-height);
+  padding: calc(9px + env(safe-area-inset-top)) 14px 9px;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -336,7 +337,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .send, .stop { height: 44px; padding-inline: 15px; }
 .stop { border-color: var(--stop-border); background: var(--danger-soft); color: var(--danger); }
 
-.modal { position: fixed; z-index: 30; inset: 0; padding: 18px; display: grid; place-items: center; background: var(--modal-overlay); backdrop-filter: blur(5px); }
+.modal { position: fixed; z-index: 30; inset: 0; padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom)); display: grid; place-items: center; background: var(--modal-overlay); backdrop-filter: blur(5px); }
 .modal-card { width: min(540px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; padding: 18px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
 .modal-heading { display: flex; align-items: flex-start; gap: 12px; }
 .modal-heading > div { flex: 1; }
@@ -360,7 +361,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 @keyframes pulse { 50% { opacity: .35; transform: scale(.82); } }
 @media (min-width: 761px) { .mobile-only { display: none; } }
 @media (max-width: 760px) {
-  .topbar { min-height: 55px; padding-inline: 9px; gap: 7px; overflow: hidden; }
+  .topbar { padding-inline: 9px; gap: 7px; overflow: hidden; }
   .brand-mark { display: none; }
   .brand { width: 0; max-width: none; flex: 1 1 0; margin-right: 0; }
   .brand strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -371,9 +372,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   #newThreadButton::after { content: "＋"; font-size: 19px; }
   #refreshButton { display: grid; }
   .workspace { grid-template-columns: 1fr; }
-  .sidebar { position: fixed; z-index: 20; inset: 55px 15% 0 0; transform: translateX(-105%); transition: transform .2s ease; }
+  .sidebar { position: fixed; z-index: 20; inset: var(--topbar-height) 15% 0 0; transform: translateX(-105%); transition: transform .2s ease; }
   body.drawer-open .sidebar { transform: translateX(0); box-shadow: 14px 0 40px var(--drawer-shadow); }
-  .drawer-backdrop { position: fixed; z-index: 19; inset: 55px 0 0; border: 0; border-radius: 0; background: var(--drawer-overlay); }
+  .drawer-backdrop { position: fixed; z-index: 19; inset: var(--topbar-height) 0 0; border: 0; border-radius: 0; background: var(--drawer-overlay); }
   .chat-header { min-height: 57px; padding: 8px 12px; }
   .chat-identity strong { font-size: 14px; }
   .chat { width: 100vw; overflow: hidden; }

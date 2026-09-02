@@ -10,7 +10,7 @@ import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Codex Mobile Bridge maskable icon</title>
+  <desc id="desc">Two endpoints joined by a continuous link</desc>
+  <rect width="128" height="128" fill="#FFFFFF"/>
+  <g transform="translate(32 32) scale(.5)">
+    <path d="M54 42H43a22 22 0 0 0 0 44h11" fill="none" stroke="#111827" stroke-width="10" stroke-linecap="round"/>
+    <path d="M74 42h11a22 22 0 0 1 0 44H74" fill="none" stroke="#0788FF" stroke-width="10" stroke-linecap="round"/>
+    <path d="M43 64h42" fill="none" stroke="#0788FF" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -51,7 +51,9 @@ English | [简体中文](./README.zh-CN.md)
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
   synchronization after reconnecting.
 - Load the latest 10 turns first and fetch large tool details only when opened.
-- Compress HTTP responses and cache only the static application shell.
+- Install as a PWA with safe-area layout and a new-conversation shortcut.
+- Keep the static interface available offline and activate frontend updates on
+  the next launch after all app windows close.
 - Recover through a scheduled watchdog and support verified blue-green restarts.
 - Switch between dark and light themes, and between English and Simplified Chinese.
 - Run without runtime npm dependencies.
@@ -89,7 +91,19 @@ To select ports or the initial interface language explicitly:
 ```
 
 After setup completes, open the printed HTTPS URL on a phone connected to the
-same tailnet. The interface can also be installed as a PWA.
+same tailnet.
+
+### Install as an app
+
+- On Chromium browsers, use **Install app** from the browser menu or address bar.
+- On iPhone or iPad, open the browser's **Share** menu and choose
+  **Add to Home Screen**.
+- Once installed, supported launchers expose a **New conversation** shortcut.
+
+The cached app shell can open without a network connection, but conversations,
+status, and every mutation still require the tailnet and are never stored in the
+service-worker cache. New frontend versions wait until all browser tabs or app
+windows close, then activate on the next launch without an in-app prompt.
 
 ## Architecture
 
@@ -104,7 +118,8 @@ flowchart LR
 ```
 
 Only Tailscale Serve is remotely reachable. API responses and conversation data
-use `no-store`; the service worker caches static UI files only.
+use `no-store`; the service worker caches static UI files only. Navigation uses
+a short network-first window and falls back to that shell on slow or lost links.
 
 ## Operations
 

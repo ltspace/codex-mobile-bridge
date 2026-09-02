@@ -116,9 +116,13 @@ bounded to 100 entries with a seven-day expiry.
   visible heartbeats, timestamps, method names, and params. Reconnecting clients
   replay the bounded recent window or perform an incremental history catch-up
   when the replay window cannot cover the gap.
-- Static assets use ETags, Brotli/gzip transfer compression, and a service-worker
-  app-shell cache. API responses remain `no-store`; no conversation data enters
-  the service-worker cache or HTML strings.
+- Static assets use ETags, Brotli/gzip transfer compression, and a versioned
+  service-worker app-shell cache. Navigations are network-first with a bounded
+  wait and an offline shell fallback; shell assets remain cache-first within one
+  version. API responses remain `no-store`; no conversation data enters the
+  service-worker cache or HTML strings. A new worker follows the default waiting
+  lifecycle and activates after all current clients close, preventing mixed
+  frontend versions without adding an in-app prompt.
 - `/api/metrics` returns process-lifetime HTTP/RPC counters, bounded route/method
   dimensions, error counts, and average/max latency. `/api/health` embeds the
   same snapshot for the status UI and PowerShell diagnostics.
