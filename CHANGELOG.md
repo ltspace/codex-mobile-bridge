@@ -2,6 +2,14 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Launch the scheduled watchdog directly through hidden Windows PowerShell so
+  Windows Script Host or security-product interception of a VBS wrapper cannot
+  disable automatic bridge recovery.
+
 ## 0.7.2 - 2026-09-02
 
 ### Fixed

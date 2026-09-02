@@ -3,11 +3,11 @@ $ErrorActionPreference = 'Stop'
 
 $Config = Get-BridgeConfig
 $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$WScriptPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-$HiddenHostPath = Join-Path $Config.Root 'watchdog-hidden.vbs'
-$Arguments = "//B //NoLogo `"$HiddenHostPath`""
+$PowerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$WatchdogPath = Join-Path $Config.Root 'watchdog.ps1'
+$Arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WatchdogPath`""
 
-$Action = New-ScheduledTaskAction -Execute $WScriptPath -Argument $Arguments -WorkingDirectory $Config.Root
+$Action = New-ScheduledTaskAction -Execute $PowerShellPath -Argument $Arguments -WorkingDirectory $Config.Root
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
 $PeriodicTrigger = New-ScheduledTaskTrigger -Once `
     -At ((Get-Date).AddMinutes(1)) `
