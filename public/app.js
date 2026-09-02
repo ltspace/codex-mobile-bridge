@@ -157,7 +157,6 @@ function openDrawer() {
 }
 
 function openActionDrawer() {
-  if (!compactActionLayout.matches) return;
   closeDrawer();
   document.body.classList.add("action-drawer-open");
   elements.actionDrawer.inert = false;
@@ -414,7 +413,6 @@ function updateArchiveActions() {
   const threadId = state.selected?.id;
   const queued = threadId ? Number(state.queuedByThread[threadId] || 0) : 0;
   const disabled = !threadId || state.busy || state.submitting || queued > 0;
-  elements.archiveThreadButton.disabled = disabled;
   elements.drawerArchiveThreadButton.disabled = disabled;
 }
 
@@ -522,7 +520,7 @@ function clearSelectedThread() {
 
 async function archiveSelectedThread() {
   const selected = state.selected;
-  if (!selected || elements.archiveThreadButton.disabled || archivingThreadId) return;
+  if (!selected || elements.drawerArchiveThreadButton.disabled || archivingThreadId) return;
   if (!window.confirm(t("archive.confirm", { title: titleOf(selected) }))) return;
   const threadId = selected.id;
   archivingThreadId = threadId;
@@ -933,7 +931,6 @@ async function refreshAll() {
 }
 
 elements.refreshButton.addEventListener("click", refreshAll);
-elements.archiveThreadButton.addEventListener("click", archiveSelectedThread);
 elements.drawerRefreshButton.addEventListener("click", () => {
   closeActionDrawer({ restoreFocus: true });
   void refreshAll();

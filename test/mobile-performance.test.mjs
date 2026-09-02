@@ -113,6 +113,7 @@ test("mobile actions use a topbar drawer instead of consuming conversation-list 
   assert.match(page, /id="actionMenuButton"[^>]+aria-controls="actionDrawer"/);
   assert.match(page, /id="actionDrawer"[^>]+role="group"[^>]+inert/);
   assert.match(page, /id="drawerArchiveThreadButton"/);
+  assert.doesNotMatch(page, /id="archiveThreadButton"/);
   assert.doesNotMatch(sidebar, /id="drawer(?:NewThread|Refresh|ArchiveThread|Theme|Language)Button"/);
   assert.match(app, /function openActionDrawer\(\)/);
   assert.match(app, /thread\/archive/);

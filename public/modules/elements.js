@@ -13,7 +13,6 @@ export const elements = {
   bridgeVersion: byId("bridgeVersion"),
   newThreadButton: byId("newThreadButton"),
   refreshButton: byId("refreshButton"),
-  archiveThreadButton: byId("archiveThreadButton"),
   drawerNewThreadButton: byId("drawerNewThreadButton"),
   drawerRefreshButton: byId("drawerRefreshButton"),
   drawerArchiveThreadButton: byId("drawerArchiveThreadButton"),

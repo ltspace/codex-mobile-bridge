@@ -6,8 +6,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ### Added
 
-- Added archive actions for the selected conversation to the desktop top bar
-  and compact-screen action drawer.
+- Added an archive action for the selected conversation to the top-bar action
+  menu on desktop and compact screens.
 - Added confirmation, active-turn and queued-message guards, automatic list
   refresh, and `thread/archive` protocol coverage.
 

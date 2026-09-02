@@ -45,7 +45,7 @@ English | [简体中文](./README.zh-CN.md)
 ## Features
 
 - Search, open, and create Codex conversations.
-- Archive the selected idle conversation from the top bar or mobile action drawer.
+- Archive the selected idle conversation from the top-bar action menu.
 - Render responses with Markdown, clickable links, tables, and code blocks.
 - Send messages, queue follow-ups without interrupting active work, stop turns
   explicitly, and handle supported approval and user-input requests.

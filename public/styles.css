@@ -160,10 +160,33 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .connection-pill.online .connection-dot { background: var(--online); box-shadow: 0 0 10px var(--online-glow); }
 .connection-pill.offline .connection-dot { background: var(--offline); }
 .connection-pill.connecting .connection-dot { background: var(--connecting); animation: pulse 1.2s infinite; }
-.action-menu-button, .action-drawer { display: none; }
+.action-menu-button { display: grid; }
 .action-menu-button > svg { width: 21px; height: 21px; fill: currentColor; }
 .archive-action { color: var(--muted); }
-#archiveThreadButton > svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.action-drawer {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(320px, 100vw);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 0 16px;
+  background: var(--panel);
+  box-shadow: 0 18px 38px var(--drawer-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-10px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.drawer-action { min-width: 0; min-height: 44px; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; font-size: 12px; }
+.drawer-action-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; }
+.drawer-action-icon > svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.drawer-archive-action { grid-column: 1 / -1; }
 .action-drawer-backdrop { position: fixed; z-index: 21; inset: var(--topbar-height) 0 0; border: 0; border-radius: 0; background: var(--drawer-overlay); }
 
 .workspace { min-height: 0; display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); }
@@ -410,33 +433,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   #themeButton,
   #languageButton,
   #newThreadButton,
-  #refreshButton,
-  #archiveThreadButton { display: none; }
-  .action-menu-button { display: grid; }
-  .action-drawer {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    width: min(320px, 100vw);
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-top: 0;
-    border-radius: 0 0 0 16px;
-    background: var(--panel);
-    box-shadow: 0 18px 38px var(--drawer-shadow);
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-10px);
-    transition: opacity .18s ease, transform .18s ease;
-  }
-  body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; transform: translateY(0); }
-  .drawer-action { min-width: 0; min-height: 44px; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; font-size: 12px; }
-  .drawer-action-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; }
-  .drawer-action-icon > svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .drawer-archive-action { grid-column: 1 / -1; }
+  #refreshButton { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
