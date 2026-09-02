@@ -27,19 +27,19 @@ English | [简体中文](./README.zh-CN.md)
 > included.
 
 <p align="center"><strong>Desktop · Light</strong><br>
-  <img src="docs/screenshots/desktop-light.png" alt="Desktop light mode showing a fictional Codex engineering conversation" width="100%">
+  <img src="docs/screenshots/desktop-light.png" alt="Desktop light mode showing a fictional Codex engineering conversation with an externally blocked queued message" width="100%">
 </p>
 
 <p align="center"><strong>Desktop · Dark</strong><br>
-  <img src="docs/screenshots/desktop-dark.png" alt="Desktop dark mode showing the same fictional Codex engineering conversation" width="100%">
+  <img src="docs/screenshots/desktop-dark.png" alt="Desktop dark mode showing the compact conversation action menu" width="100%">
 </p>
 
 <p align="center"><strong>Mobile · Light</strong><br>
-  <img src="docs/screenshots/mobile-light.png" alt="Mobile light mode showing a fictional conversation with Markdown rendering" width="390">
+  <img src="docs/screenshots/mobile-light.png" alt="Mobile light mode showing external-client wait status and queued-message cancellation" width="390">
 </p>
 
 <p align="center"><strong>Mobile · Dark</strong><br>
-  <img src="docs/screenshots/mobile-dark.png" alt="Mobile dark mode showing the navigation drawer and fictional conversations" width="390">
+  <img src="docs/screenshots/mobile-dark.png" alt="Mobile dark mode showing the conversation drawer and Codex or OpenClaw source switch" width="390">
 </p>
 
 ## Features

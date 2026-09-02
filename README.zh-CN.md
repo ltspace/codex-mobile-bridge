@@ -26,19 +26,19 @@
 > 任何个人信息或生产数据。
 
 <p align="center"><strong>桌面端 · 白色</strong><br>
-  <img src="docs/screenshots/desktop-light.png" alt="桌面端白色模式，展示虚构的 Codex 工程会话" width="100%">
+  <img src="docs/screenshots/desktop-light.png" alt="桌面端白色模式，展示虚构的 Codex 工程会话和被其他客户端阻塞的排队消息" width="100%">
 </p>
 
 <p align="center"><strong>桌面端 · 深色</strong><br>
-  <img src="docs/screenshots/desktop-dark.png" alt="桌面端深色模式，展示相同的虚构 Codex 工程会话" width="100%">
+  <img src="docs/screenshots/desktop-dark.png" alt="桌面端深色模式，展示紧凑的会话操作菜单" width="100%">
 </p>
 
 <p align="center"><strong>手机端 · 白色</strong><br>
-  <img src="docs/screenshots/mobile-light.png" alt="手机端白色模式，展示虚构会话和 Markdown 渲染" width="390">
+  <img src="docs/screenshots/mobile-light.png" alt="手机端白色模式，展示其他客户端占用状态和取消排队消息" width="390">
 </p>
 
 <p align="center"><strong>手机端 · 深色</strong><br>
-  <img src="docs/screenshots/mobile-dark.png" alt="手机端深色模式，展示导航抽屉和虚构会话" width="390">
+  <img src="docs/screenshots/mobile-dark.png" alt="手机端深色模式，展示会话抽屉和 Codex 或 OpenClaw 来源切换" width="390">
 </p>
 
 ## 功能
