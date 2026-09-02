@@ -62,6 +62,7 @@ const { emptyState, isNearBottom, renderMessages, renderEntryBody, scrollToBotto
   toast,
   onLoadOlder: () => loadOlderTurns(),
   onLoadDetail: (entry) => loadItemDetail(entry),
+  onCancelQueued: (entry) => cancelQueuedMessage(entry),
 });
 
 const pendingStreamRenders = new Map();
@@ -125,9 +126,42 @@ function syncSelectedActivity() {
   updateTurnState();
 }
 
+function queueEntry(item) {
+  return {
+    id: `queue:${item.id}`,
+    queueId: item.id,
+    turnId: null,
+    role: "user",
+    text: item.text,
+    type: t("message.queued"),
+    reason: item.reason || "manual",
+    position: Number(item.position || 1),
+    pending: false,
+  };
+}
+
+function setSelectedQueue(result) {
+  if (!state.selected) return;
+  state.queuedMessages = (result?.data || []).map(queueEntry);
+  state.queuedByThread[state.selected.id] = state.queuedMessages.length;
+  state.externalWriter = Boolean(result?.blockedByExternalWriter);
+  updateTurnState();
+}
+
+function upsertSelectedQueue(item) {
+  if (!item?.id || state.selected?.id !== item.threadId) return;
+  const entry = queueEntry(item);
+  const index = state.queuedMessages.findIndex((queued) => queued.queueId === item.id);
+  if (index >= 0) state.queuedMessages[index] = entry;
+  else state.queuedMessages.push(entry);
+  state.externalWriter ||= item.reason === "thread_in_use";
+}
+
 function updateTurnState(kind = null, label = null) {
-  const active = kind || (state.busy ? "running" : "idle");
-  const text = label || (state.busy ? (state.activeTurnId ? t("turn.running") : t("turn.runningElsewhere")) : t("turn.idle"));
+  const active = kind || (state.busy ? "running" : state.externalWriter ? "waiting" : "idle");
+  const text = label || (state.busy
+    ? (state.activeTurnId ? t("turn.running") : t("turn.runningElsewhere"))
+    : state.externalWriter ? t("turn.waitingOtherClient") : t("turn.idle"));
   elements.turnState.className = `turn-state ${active}`;
   elements.turnState.querySelector("b").textContent = text;
   updateComposer();
@@ -301,6 +335,8 @@ async function selectThread(summary, { isNew = false, silent = false } = {}) {
   const version = ++state.selectionVersion;
   state.selected = summary;
   state.historyItems = [];
+  state.queuedMessages = [];
+  state.externalWriter = false;
   state.historyCursor = null;
   state.latestTurnId = null;
   state.streaming.clear();
@@ -320,15 +356,17 @@ async function selectThread(summary, { isNew = false, silent = false } = {}) {
   }
   if (!silent) elements.messages.replaceChildren(emptyState(t("threads.reading"), t("threads.recentTurns"), "⋯"));
   try {
-    const [turnsResult, threadResult] = await Promise.all([
+    const [turnsResult, threadResult, queueResult] = await Promise.all([
       api(`/api/threads/${encodeURIComponent(summary.id)}/turns?limit=${TURN_PAGE_SIZE}`, { timeoutMs: 45_000 }),
       api(`/api/threads/${encodeURIComponent(summary.id)}`),
+      api(`/api/threads/${encodeURIComponent(summary.id)}/queue`),
     ]);
     if (version !== state.selectionVersion) return;
     state.selected = { ...summary, ...threadObject(threadResult) };
     state.historyItems = entriesFromTurns(turnsResult);
     state.historyCursor = turnsResult.nextCursor || null;
     state.latestTurnId = latestTurnId(turnsResult);
+    setSelectedQueue(queueResult);
     syncSelectedActivity();
     elements.chatTitle.textContent = titleOf(state.selected);
     elements.chatMeta.textContent = state.selected.cwd || t("threads.noCwd");
@@ -403,12 +441,16 @@ async function syncSelectedThread() {
   state.historySyncPromise = (async () => {
     const query = new URLSearchParams({ limit: String(TURN_PAGE_SIZE) });
     if (knownTurnId) query.set("knownTurnId", knownTurnId);
-    const result = await api(`/api/threads/${encodeURIComponent(selectedId)}/sync?${query}`, { timeoutMs: 45_000 });
+    const [result, queueResult] = await Promise.all([
+      api(`/api/threads/${encodeURIComponent(selectedId)}/sync?${query}`, { timeoutMs: 45_000 }),
+      api(`/api/threads/${encodeURIComponent(selectedId)}/queue`),
+    ]);
     if (version !== state.selectionVersion || selectedId !== state.selected?.id) return;
     const nearBottom = isNearBottom();
     const previousHeight = elements.messages.scrollHeight;
     const previousTop = elements.messages.scrollTop;
     mergeTurnDelta(result);
+    setSelectedQueue(queueResult);
     renderMessages();
     if (!nearBottom) elements.messages.scrollTop = previousTop + (elements.messages.scrollHeight - previousHeight);
   })().catch((error) => {
@@ -434,13 +476,15 @@ function updateComposer() {
   const canConnect = state.ready && state.connection !== "offline" && !recovering;
   elements.messageInput.disabled = !selected || !canConnect || state.submitting;
   elements.sendButton.disabled = elements.messageInput.disabled || !elements.messageInput.value.trim();
-  elements.sendButton.textContent = state.busy ? t("actions.queue") : t("actions.send");
+  const queued = state.selected ? Number(state.queuedByThread[state.selected.id] || 0) : 0;
+  const willQueue = state.busy || state.externalWriter || queued > 0;
+  elements.sendButton.textContent = willQueue ? t("actions.queue") : t("actions.send");
   elements.stopButton.classList.toggle("hidden", !state.busy || !state.activeTurnId);
   elements.stopButton.disabled = state.submitting;
   if (!selected) elements.composerHint.textContent = t("composer.select");
   else if (recovering) elements.composerHint.textContent = t("composer.recovering");
   else if (!canConnect) elements.composerHint.textContent = t("composer.disconnected");
-  else if (state.busy && !state.activeTurnId) elements.composerHint.textContent = t("composer.otherClientQueue");
+  else if (state.externalWriter || (state.busy && !state.activeTurnId)) elements.composerHint.textContent = t("composer.otherClientQueue");
   else if (state.busy) elements.composerHint.textContent = t("composer.queueHint");
   else elements.composerHint.textContent = t("composer.keyboardHint");
   updateArchiveActions();
@@ -466,7 +510,8 @@ async function sendMessage(event) {
   const text = elements.messageInput.value.trim();
   if (!text) return;
   const threadId = state.selected.id;
-  const mode = state.busy ? "queue" : "start";
+  const queuedCount = Number(state.queuedByThread[threadId] || 0);
+  const mode = state.busy || state.externalWriter || queuedCount > 0 ? "queue" : "start";
   const entry = { id: `local:${Date.now()}`, turnId: null, role: "user", text, type: mode === "queue" ? t("message.queued") : "userMessage", pending: true };
   state.historyItems.push(entry);
   elements.messageInput.value = "";
@@ -492,7 +537,9 @@ async function sendMessage(event) {
       state.busy = true;
       updateTurnState();
     } else if (result?.mode === "queue") {
-      entry.type = t("message.queued");
+      state.historyItems = state.historyItems.filter((item) => item !== entry);
+      upsertSelectedQueue(result.item || { id: result.queueId, threadId, text, position: result.position });
+      state.externalWriter ||= result.item?.reason === "thread_in_use";
       state.queuedByThread[threadId] = Math.max(Number(state.queuedByThread[threadId] || 0), Number(result.position || 1));
       toast(t("toast.queued", { position: result.position || 1 }));
     } else {
@@ -521,6 +568,29 @@ async function sendMessage(event) {
   }
 }
 
+async function cancelQueuedMessage(entry) {
+  if (!state.selected || !entry?.queueId || entry.cancelling) return;
+  const threadId = state.selected.id;
+  entry.cancelling = true;
+  renderMessages();
+  try {
+    const result = await api(`/api/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(entry.queueId)}`, {
+      method: "DELETE",
+    });
+    state.queuedMessages = state.queuedMessages.filter((item) => item.queueId !== entry.queueId);
+    state.queuedByThread[threadId] = Number(result.remaining || 0);
+    if (!state.queuedMessages.some((item) => item.reason === "thread_in_use")) state.externalWriter = false;
+    toast(t("toast.queueCancelled"));
+  } catch (error) {
+    entry.cancelling = false;
+    const info = errorInfo(error);
+    showBanner(info.message, { retry: info.retryable ? () => cancelQueuedMessage(entry) : null });
+  } finally {
+    updateTurnState();
+    renderMessages();
+  }
+}
+
 async function stopTurn() {
   if (!state.selected || !state.activeTurnId || state.submitting) return;
   state.submitting = true;
@@ -543,10 +613,12 @@ function clearSelectedThread() {
   state.selectionVersion += 1;
   state.selected = null;
   state.historyItems = [];
+  state.queuedMessages = [];
   state.historyCursor = null;
   state.latestTurnId = null;
   state.activeTurnId = null;
   state.busy = false;
+  state.externalWriter = false;
   state.streaming.clear();
   elements.chatTitle.textContent = t(state.threadClient === "openclaw" ? "threads.selectOpenClaw" : "threads.select");
   elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
@@ -607,12 +679,38 @@ function handleEvent(event) {
   const turnId = eventTurnId(params);
   if (method === "bridge/messageQueued" && threadId) {
     state.queuedByThread[threadId] = Math.max(Number(state.queuedByThread[threadId] || 0), Number(params.position || 1));
-    updateArchiveActions();
+    if (threadId === state.selected?.id && params.item) {
+      upsertSelectedQueue(params.item);
+      updateTurnState();
+      renderMessages();
+    } else updateArchiveActions();
     return;
   }
   if (method === "bridge/messageDequeued" && threadId) {
     state.queuedByThread[threadId] = Number(params.remaining || 0);
-    updateArchiveActions();
+    if (threadId === state.selected?.id) {
+      state.queuedMessages = state.queuedMessages.filter((item) => item.queueId !== params.queueId);
+      if (!state.queuedMessages.some((item) => item.reason === "thread_in_use")) state.externalWriter = false;
+      updateTurnState();
+      renderMessages();
+    } else updateArchiveActions();
+    return;
+  }
+  if (method === "bridge/messageQueueCancelled" && threadId) {
+    state.queuedByThread[threadId] = Number(params.remaining || 0);
+    if (threadId === state.selected?.id) {
+      state.queuedMessages = state.queuedMessages.filter((item) => item.queueId !== params.queueId);
+      if (!state.queuedMessages.some((item) => item.reason === "thread_in_use")) state.externalWriter = false;
+      updateTurnState();
+      renderMessages();
+    } else updateArchiveActions();
+    return;
+  }
+  if (method === "bridge/messageQueueWaiting" && threadId === state.selected?.id && params.code === "thread_in_use") {
+    state.externalWriter = true;
+    const item = state.queuedMessages.find((queued) => queued.queueId === params.queueId);
+    if (item) item.reason = "thread_in_use";
+    updateTurnState();
     return;
   }
   if (method === "thread/archived" && threadId && threadId !== archivingThreadId) {

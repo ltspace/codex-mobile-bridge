@@ -29,8 +29,8 @@ export class BridgeStateStore {
     this.#save();
   }
 
-  enqueueMessage(threadId, text) {
-    const item = { id: randomUUID(), threadId, text, createdAt: Date.now() };
+  enqueueMessage(threadId, text, { reason = "manual" } = {}) {
+    const item = { id: randomUUID(), threadId, text, reason, createdAt: Date.now() };
     this.queuedMessages.push(item);
     this.#compact();
     this.#save();
@@ -39,6 +39,12 @@ export class BridgeStateStore {
 
   peekQueuedMessage(threadId) {
     return this.queuedMessages.find((item) => item.threadId === threadId) || null;
+  }
+
+  queuedMessagesForThread(threadId) {
+    return this.queuedMessages
+      .filter((item) => item.threadId === threadId)
+      .map((item, index) => ({ ...item, position: index + 1 }));
   }
 
   queuedMessageCount(threadId) {
@@ -51,6 +57,22 @@ export class BridgeStateStore {
     this.queuedMessages.splice(index, 1);
     this.#save();
     return true;
+  }
+
+  removeQueuedMessageForThread(threadId, id) {
+    const index = this.queuedMessages.findIndex((item) => item.threadId === threadId && item.id === id);
+    if (index < 0) return false;
+    this.queuedMessages.splice(index, 1);
+    this.#save();
+    return true;
+  }
+
+  updateQueuedMessage(id, changes = {}) {
+    const item = this.queuedMessages.find((queued) => queued.id === id);
+    if (!item) return null;
+    if (typeof changes.reason === "string" && changes.reason) item.reason = changes.reason;
+    this.#save();
+    return { ...item };
   }
 
   queuedThreadIds() {
@@ -85,7 +107,13 @@ export class BridgeStateStore {
           && item.text.length <= 20_000
           && Number.isFinite(item?.createdAt)
         ) {
-          this.queuedMessages.push({ id: item.id, threadId: item.threadId, text: item.text, createdAt: item.createdAt });
+          this.queuedMessages.push({
+            id: item.id,
+            threadId: item.threadId,
+            text: item.text,
+            reason: typeof item.reason === "string" && item.reason ? item.reason : "manual",
+            createdAt: item.createdAt,
+          });
         }
       }
       this.#compact();
@@ -107,7 +135,7 @@ export class BridgeStateStore {
     mkdirSync(dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.${process.pid}.tmp`;
     const payload = {
-      version: 2,
+      version: 3,
       pendingFirstTurns: [...this.drafts].map(([threadId, createdAt]) => ({ threadId, createdAt })),
       queuedMessages: this.queuedMessages,
     };

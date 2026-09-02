@@ -63,6 +63,10 @@ reader.on("line", (line) => {
     draftId += 1;
     send({ id, result: { thread: { id: `draft-${draftId}`, name: null, cwd: params.cwd, status: { type: "idle" } } } });
   } else if (method === "thread/resume") {
+    if (params.threadId === process.env.FAKE_CODEX_CONFLICT_THREAD) {
+      send({ id, error: { code: -32600, message: "thread-store conflict: thread already has an active writer" } });
+      return;
+    }
     send({ id, result: { thread: { id: params.threadId, status: { type: "idle" } } } });
   } else if (method === "thread/unsubscribe") {
     send({ id, result: { status: "unsubscribed" } });
@@ -88,7 +92,7 @@ reader.on("line", (line) => {
     setTimeout(() => {
       send({ method: "item/agentMessage/delta", params: { threadId: params.threadId, turnId: turn.id, itemId: "item-live", delta: "done" } });
       send({ method: "turn/completed", params: { threadId: params.threadId, turn: { ...turn, status: "completed" } } });
-    }, 100);
+    }, Number(process.env.FAKE_CODEX_TURN_DELAY_MS || 100));
   } else if (method === "turn/steer") {
     send({ id, result: { turnId: params.expectedTurnId } });
   } else if (method === "turn/interrupt") {

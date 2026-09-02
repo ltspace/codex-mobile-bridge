@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import { markdownToHtml } from "./markdown.js";
 
-export function createMessageView({ elements, state, toast, onLoadOlder, onLoadDetail }) {
+export function createMessageView({ elements, state, toast, onLoadOlder, onLoadDetail, onCancelQueued }) {
   function emptyState(title, detail, symbol = "⌁") {
     const node = document.createElement("div");
     node.className = "empty-state";
@@ -116,12 +116,14 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
     }
 
     const box = document.createElement("article");
-    box.className = `message ${entry.role}${entry.pending ? " pending" : ""}`;
+    box.className = `message ${entry.role}${entry.pending ? " pending" : ""}${entry.queueId ? " queued" : ""}`;
     box.dataset.entryId = entry.id;
     const head = document.createElement("div");
     head.className = "message-head";
     const label = document.createElement("span");
-    label.textContent = entry.role === "user" ? t("message.you") : "Codex";
+    label.textContent = entry.queueId
+      ? `${t("message.you")} · ${t("message.queued")}`
+      : entry.role === "user" ? t("message.you") : "Codex";
     const copy = document.createElement("button");
     copy.type = "button";
     copy.className = "message-copy";
@@ -129,7 +131,17 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
     copy.title = t("message.copy");
     copy.setAttribute("aria-label", t("message.copy"));
     copy.addEventListener("click", () => copyText(entry.text, copy));
-    head.append(label, copy);
+    head.append(label);
+    if (entry.queueId) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "message-cancel";
+      cancel.textContent = t("actions.cancelQueued");
+      cancel.disabled = Boolean(entry.cancelling);
+      cancel.addEventListener("click", () => onCancelQueued?.(entry));
+      head.append(cancel);
+    }
+    head.append(copy);
     const body = document.createElement("div");
     body.className = "message-body";
     renderRichText(body, entry.text, entry.role === "agent");
@@ -157,8 +169,9 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
       older.addEventListener("click", onLoadOlder);
       nodes.push(older);
     }
-    for (const entry of state.historyItems) nodes.push(messageNode(entry));
-    if (!state.historyItems.length && state.selected) nodes.push(emptyState(t("threads.empty"), t("threads.emptyHelp"), "＋"));
+    const entries = [...state.historyItems, ...state.queuedMessages];
+    for (const entry of entries) nodes.push(messageNode(entry));
+    if (!entries.length && state.selected) nodes.push(emptyState(t("threads.empty"), t("threads.emptyHelp"), "＋"));
     if (!state.selected) nodes.push(emptyState(t("threads.noneSelected"), t("threads.selectHelp"), "⌁"));
     elements.messages.replaceChildren(...nodes);
     if (preserveTop) elements.messages.scrollTop = elements.messages.scrollHeight - previousHeight;

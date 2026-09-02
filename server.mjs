@@ -10,7 +10,7 @@ import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 
-const VERSION = "0.7.1";
+const VERSION = "0.7.2";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -132,6 +132,8 @@ function routeName(method, pathname) {
   if (exact[key]) return exact[key];
   if (/^\/api\/threads\/[^/]+\/turns$/.test(pathname)) return "turn_list";
   if (/^\/api\/threads\/[^/]+\/sync$/.test(pathname)) return "turn_sync";
+  if (/^\/api\/threads\/[^/]+\/queue\/[^/]+$/.test(pathname)) return "queue_cancel";
+  if (/^\/api\/threads\/[^/]+\/queue$/.test(pathname)) return "queue_list";
   if (/^\/api\/threads\/[^/]+\/turns\/[^/]+\/items\/[^/]+$/.test(pathname)) return "item_detail";
   if (/^\/api\/threads\/[^/]+\/send$/.test(pathname)) return "turn_send";
   if (/^\/api\/threads\/[^/]+\/interrupt$/.test(pathname)) return "turn_interrupt";
@@ -172,6 +174,18 @@ async function handleApi(request, response, url, id) {
     if (!eventHub.attach(request, response, bridgeSnapshot())) {
       throw new BridgeError("事件连接数已达上限", { status: 503, code: "too_many_event_clients", retryable: true });
     }
+    return true;
+  }
+
+  const queueItemMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/queue\/([^/]+)$/);
+  if (queueItemMatch && request.method === "DELETE") {
+    json(response, 200, threads.cancelQueuedMessage(pathId(queueItemMatch), pathId(queueItemMatch, 2)), id);
+    return true;
+  }
+
+  const queueMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/queue$/);
+  if (queueMatch && request.method === "GET") {
+    json(response, 200, threads.queuedMessages(pathId(queueMatch)), id);
     return true;
   }
 

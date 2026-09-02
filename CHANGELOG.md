@@ -2,6 +2,17 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## 0.7.2 - 2026-09-02
+
+### Fixed
+
+- Keep queued messages visible after conversation refreshes, reconnects, and
+  Bridge restarts, with exact per-message cancellation from the mobile UI.
+- Distinguish a conversation held by another Codex client from a locally owned
+  active turn, without offering an unsafe stop or process-level takeover.
+- Keep the blue-green candidate probe from blocking on a conversation writer
+  that another client owns but App Server reports as `notLoaded`.
+
 ## 0.7.1 - 2026-09-02
 
 ### Fixed

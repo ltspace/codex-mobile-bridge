@@ -31,8 +31,11 @@ function Test-CandidateApi([int]$Port) {
     $Threads = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads?limit=10" -TimeoutSec 30
     $Items = @($Threads.data)
     if ($Items.Count -gt 0 -and $Items[0].id) {
+        # App Server can report an externally owned writer as notLoaded. Avoid a
+        # history probe that may block on that writer while still validating the
+        # App Server list path and the bridge-local queue contract.
         $ThreadId = [uri]::EscapeDataString([string]$Items[0].id)
-        Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads/$ThreadId/turns?limit=2" -TimeoutSec 45 | Out-Null
+        Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads/$ThreadId/queue" -TimeoutSec 5 | Out-Null
     }
 }
 

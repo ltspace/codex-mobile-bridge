@@ -119,3 +119,17 @@ test("mobile actions use a topbar drawer instead of consuming conversation-list 
   assert.match(app, /thread\/archive/);
   assert.match(app, /closeActionDrawer\(\);\s*\n\s*document\.body\.classList\.add\("drawer-open"\)/);
 });
+
+test("queued messages are rehydrated and individually cancellable on mobile", async () => {
+  const root = new URL("..", import.meta.url);
+  const [app, messages] = await Promise.all([
+    readFile(new URL("public/app.js", root), "utf8"),
+    readFile(new URL("public/modules/messages.js", root), "utf8"),
+  ]);
+
+  assert.match(app, /api\(`\/api\/threads\/\$\{encodeURIComponent\(summary\.id\)\}\/queue`\)/);
+  assert.match(app, /method: "DELETE"/);
+  assert.match(app, /bridge\/messageQueueCancelled/);
+  assert.match(messages, /state\.historyItems, \.\.\.state\.queuedMessages/);
+  assert.match(messages, /onCancelQueued\?\.\(entry\)/);
+});

@@ -96,6 +96,7 @@ export class ThreadService {
     this.activeTurns = new Map();
     this.releasePromises = new Map();
     this.queueDrains = new Map();
+    this.queueDrainItems = new Map();
     this.queueRetryTimers = new Map();
     this.queueRetryCounts = new Map();
     this.serverRequests = new Map();
@@ -354,7 +355,7 @@ export class ThreadService {
     const input = [{ type: "text", text: cleanText }];
 
     try {
-      if (mode === "queue") return this.#enqueueMessage(threadId, cleanText);
+      if (mode === "queue") return this.#enqueueMessage(threadId, cleanText, "turn_active");
 
       if (mode === "steer") {
         const activeTurnId = expectedTurnId || this.activeTurns.get(threadId);
@@ -383,9 +384,40 @@ export class ThreadService {
       return await this.#startTurn(threadId, input);
     } catch (error) {
       const failure = rpcFailure(error);
-      if (failure?.code === "thread_in_use") return this.#enqueueMessage(threadId, cleanText);
+      if (failure?.code === "thread_in_use") return this.#enqueueMessage(threadId, cleanText, "thread_in_use");
       throw failure;
     }
+  }
+
+  queuedMessages(threadId) {
+    const data = this.stateStore.queuedMessagesForThread(threadId);
+    return {
+      data,
+      blockedByExternalWriter: data.some((item) => item.reason === "thread_in_use"),
+    };
+  }
+
+  cancelQueuedMessage(threadId, queueId) {
+    if (this.queueDrainItems.get(threadId) === queueId) {
+      throw new BridgeError("该消息正在尝试发送，请稍后再取消", {
+        status: 409,
+        code: "queue_dispatching",
+        retryable: true,
+      });
+    }
+    if (!this.stateStore.removeQueuedMessageForThread(threadId, queueId)) {
+      throw new BridgeError("排队消息不存在或已经发送", { status: 404, code: "queued_message_not_found" });
+    }
+    const remaining = this.stateStore.queuedMessageCount(threadId);
+    if (remaining === 0) {
+      const timer = this.queueRetryTimers.get(threadId);
+      if (timer) clearTimeout(timer);
+      this.queueRetryTimers.delete(threadId);
+      this.queueRetryCounts.delete(threadId);
+    }
+    this.eventHub.publish("bridge/messageQueueCancelled", { threadId, queueId, remaining });
+    if (remaining > 0) this.#drainQueue(threadId);
+    return { ok: true, queueId, remaining };
   }
 
   async interrupt(threadId, turnId = null) {
@@ -502,12 +534,13 @@ export class ThreadService {
     }
   }
 
-  #enqueueMessage(threadId, text) {
-    const queued = this.stateStore.enqueueMessage(threadId, text);
+  #enqueueMessage(threadId, text, reason) {
+    const queued = this.stateStore.enqueueMessage(threadId, text, { reason });
     this.eventHub.publish("bridge/messageQueued", {
       threadId,
       queueId: queued.id,
       position: queued.position,
+      item: queued,
     });
     this.#drainQueue(threadId);
     return {
@@ -515,6 +548,7 @@ export class ThreadService {
       queued: true,
       queueId: queued.id,
       position: queued.position,
+      item: queued,
     };
   }
 
@@ -545,6 +579,7 @@ export class ThreadService {
       })
       .catch((error) => {
         const failure = rpcFailure(error);
+        if (failure?.code === "thread_in_use") this.stateStore.updateQueuedMessage(item.id, { reason: "thread_in_use" });
         const attempt = (this.queueRetryCounts.get(threadId) || 0) + 1;
         this.queueRetryCounts.set(threadId, attempt);
         const delayMs = Math.min(30_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
@@ -563,8 +598,10 @@ export class ThreadService {
       })
       .finally(() => {
         if (this.queueDrains.get(threadId) === drain) this.queueDrains.delete(threadId);
+        if (this.queueDrainItems.get(threadId) === item.id) this.queueDrainItems.delete(threadId);
       });
     this.queueDrains.set(threadId, drain);
+    this.queueDrainItems.set(threadId, item.id);
   }
 
   #invalidateThreadList() {

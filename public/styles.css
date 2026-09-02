@@ -271,6 +271,8 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .turn-state span { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); }
 .turn-state.running { color: var(--accent); }
 .turn-state.running span { background: var(--accent); animation: pulse 1.15s infinite; }
+.turn-state.waiting { color: var(--accent); }
+.turn-state.waiting span { background: var(--accent); }
 .turn-state.error { color: var(--danger); }
 .turn-state.error span { background: var(--danger); }
 
@@ -299,6 +301,7 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .message.user .message-copy.copied { color: var(--user-text); }
 .message.agent { width: 100%; max-width: 780px; align-self: flex-start; border: 0; border-radius: 0; background: transparent; }
 .message.pending { opacity: .68; }
+.message.queued { border-style: dashed; }
 .message-head { min-height: 31px; padding: 8px 11px 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .message-head span { flex: 1; }
 .message-body { padding: 2px 12px 11px; white-space: pre-wrap; }
@@ -356,6 +359,7 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .task-item { margin-left: -20px; display: flex; align-items: flex-start; gap: 7px; list-style: none; }
 .task-item input { margin-top: 5px; accent-color: var(--accent); }
 .message-copy { min-width: 29px; min-height: 27px; padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 15px; }
+.message-cancel { min-height: 27px; padding: 0 8px; border: 0; background: transparent; color: inherit; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .message-copy.copied { color: var(--accent); }
 .tool-message { align-self: stretch; border: 1px solid var(--line); border-radius: 11px; background: var(--tool-bg); color: var(--muted); }
 .tool-message summary { padding: 8px 11px; cursor: pointer; font: 11px/1.4 ui-monospace, Consolas, monospace; }

@@ -127,16 +127,20 @@ test("thread client classification separates OpenClaw sessions from ordinary Cod
 
 test("queued follow-ups survive a bridge restart until delivered", async (context) => {
   const temporary = await mkdtemp(join(tmpdir(), "codex-bridge-queue-test-"));
-  context.after(() => rm(temporary, { recursive: true, force: true }));
+  context.after(() => rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }));
   const statePath = join(temporary, "state.json");
   const first = new BridgeStateStore(statePath);
-  const queued = first.enqueueMessage("thread-1", "continue after the current task");
+  const queued = first.enqueueMessage("thread-1", "continue after the current task", { reason: "thread_in_use" });
+  const other = first.enqueueMessage("thread-2", "unrelated queue");
   assert.equal(queued.position, 1);
 
   const restored = new BridgeStateStore(statePath);
-  assert.equal(restored.snapshot().queuedMessages, 1);
+  assert.equal(restored.snapshot().queuedMessages, 2);
   assert.equal(restored.peekQueuedMessage("thread-1").text, "continue after the current task");
-  assert.equal(restored.removeQueuedMessage(queued.id), true);
+  assert.equal(restored.queuedMessagesForThread("thread-1")[0].reason, "thread_in_use");
+  assert.equal(restored.removeQueuedMessageForThread("thread-2", queued.id), false);
+  assert.equal(restored.removeQueuedMessageForThread("thread-1", queued.id), true);
+  assert.equal(restored.removeQueuedMessage(other.id), true);
   assert.equal(restored.snapshot().queuedMessages, 0);
 });
 

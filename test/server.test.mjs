@@ -35,6 +35,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
+      FAKE_CODEX_CONFLICT_THREAD: "thread-conflict",
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -56,7 +57,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.7.1");
+  assert.equal(health.version, "0.7.2");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -159,6 +160,29 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(queued.queued, true);
   assert.equal(queued.position, 1);
 
+  const activeQueue = await (await fetch(`${baseUrl}/api/threads/draft-1/queue`)).json();
+  assert.equal(activeQueue.data.length, 1);
+  assert.equal(activeQueue.data[0].id, queued.queueId);
+  assert.equal(activeQueue.data[0].text, "follow up");
+
+  const conflictResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "wait for desktop" }),
+  });
+  assert.equal(conflictResponse.status, 202);
+  const conflictQueued = await conflictResponse.json();
+  assert.equal(conflictQueued.mode, "queue");
+  assert.equal(conflictQueued.item.reason, "thread_in_use");
+  await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  const conflictQueue = await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json();
+  assert.equal(conflictQueue.blockedByExternalWriter, true);
+  assert.equal(conflictQueue.data[0].text, "wait for desktop");
+  const cancelConflict = await fetch(`${baseUrl}/api/threads/thread-conflict/queue/${conflictQueued.queueId}`, { method: "DELETE" });
+  assert.equal(cancelConflict.status, 200);
+  assert.equal((await cancelConflict.json()).remaining, 0);
+  assert.equal((await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json()).data.length, 0);
+
   const releaseDeadline = Date.now() + 3_000;
   let releasedHealth;
   while (Date.now() < releaseDeadline) {
@@ -195,6 +219,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.7.1"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.7.2"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });
