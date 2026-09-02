@@ -408,9 +408,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     background: var(--panel);
   }
   .drawer-action { min-width: 0; min-height: 44px; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; font-size: 12px; }
-  .drawer-action-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; font-size: 18px; }
-  .drawer-action-icon .theme-icon { width: 18px; height: 18px; }
-  .drawer-language-icon { font-size: 13px; font-weight: 750; }
+  .drawer-action-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; }
+  .drawer-action-icon > svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -8,7 +8,8 @@ English | [简体中文](./README.zh-CN.md)
 
 <p align="center">
   A self-hosted web interface for accessing local Codex conversations from a phone.<br>
-  Runs on the Windows loopback interface and stays private through Tailscale Serve.
+  Runs on the Windows loopback interface and stays private through Tailscale Serve.<br>
+  Built for people like me whose ChatGPT Desktop app does not show Remote/Connections.
 </p>
 
 <p align="center">

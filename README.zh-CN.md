@@ -8,7 +8,8 @@
 
 <p align="center">
   一个通过手机访问本地 Codex 会话的自托管 Web 界面。<br>
-  服务运行在 Windows 回环地址上，并通过 Tailscale Serve 保持私有访问。
+  服务运行在 Windows 回环地址上，并通过 Tailscale Serve 保持私有访问。<br>
+  这个项目是为像我一样在 ChatGPT Desktop 中看不到“远程/连接”入口的人准备的。
 </p>
 
 <p align="center">

@@ -40,11 +40,15 @@
       <aside id="sidebar" class="sidebar" aria-label="Conversation list" data-i18n-aria-label="threads.list">
         <div class="drawer-actions">
           <button id="drawerNewThreadButton" class="drawer-action primary" type="button">
-            <span class="drawer-action-icon" aria-hidden="true">＋</span>
+            <span class="drawer-action-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+            </span>
             <span data-i18n="actions.new">New</span>
           </button>
           <button id="drawerRefreshButton" class="drawer-action" type="button">
-            <span class="drawer-action-icon" aria-hidden="true">↻</span>
+            <span class="drawer-action-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-15.5-2M4 4v5h5M4 13a8 8 0 0 0 15.5 2M20 20v-5h-5"></path></svg>
+            </span>
             <span data-i18n="actions.refresh">Refresh</span>
           </button>
           <button id="drawerThemeButton" class="drawer-action theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">
@@ -55,7 +59,9 @@
             <span id="drawerThemeText">Switch theme</span>
           </button>
           <button id="drawerLanguageButton" class="drawer-action" type="button" title="Switch to Chinese" data-i18n-title="language.switch" aria-label="Switch to Chinese" data-i18n-aria-label="language.switch">
-            <span class="drawer-action-icon drawer-language-icon" aria-hidden="true">文</span>
+            <span class="drawer-action-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"></path></svg>
+            </span>
             <span data-i18n="language.switch">Switch to Chinese</span>
           </button>
         </div>
