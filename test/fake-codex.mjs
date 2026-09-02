@@ -51,6 +51,8 @@ reader.on("line", (line) => {
     send({ id, result: { thread: { id: `draft-${draftId}`, name: null, cwd: params.cwd, status: { type: "idle" } } } });
   } else if (method === "thread/resume") {
     send({ id, result: { thread: { id: params.threadId, status: { type: "idle" } } } });
+  } else if (method === "thread/unsubscribe") {
+    send({ id, result: { status: "unsubscribed" } });
   } else if (method === "turn/start") {
     const turn = { id: "turn-live", status: "inProgress", items: [] };
     send({ id, result: { turn } });

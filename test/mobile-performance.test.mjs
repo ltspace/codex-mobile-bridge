@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { EventHub } from "../src/event-hub.mjs";
 import { compactTurnPage, deltaFromTurnPage, findThreadItem } from "../src/mobile-history.mjs";
@@ -86,4 +87,32 @@ test("event hub resumes retained events and emits observable heartbeats", () => 
   assert.match(output, /event: bridge-ping/);
   request.emit("close");
   assert.equal(hub.clients.size, 0);
+});
+
+test("new conversation uses a touch-friendly workspace picker", async () => {
+  const root = new URL("..", import.meta.url);
+  const [page, app] = await Promise.all([
+    readFile(new URL("public/index.html", root), "utf8"),
+    readFile(new URL("public/app.js", root), "utf8"),
+  ]);
+
+  assert.doesNotMatch(page, /<datalist\b|\blist="workspaceOptions"/);
+  assert.match(page, /id="workspaceToggle"/);
+  assert.match(page, /id="workspaceOptions"[^>]+role="listbox"/);
+  assert.match(app, /workspaceToggle\.addEventListener\("click", toggleWorkspaceOptions\)/);
+});
+
+test("mobile actions use a topbar drawer instead of consuming conversation-list space", async () => {
+  const root = new URL("..", import.meta.url);
+  const [page, app] = await Promise.all([
+    readFile(new URL("public/index.html", root), "utf8"),
+    readFile(new URL("public/app.js", root), "utf8"),
+  ]);
+
+  const sidebar = page.match(/<aside id="sidebar"[\s\S]*?<\/aside>/)?.[0] || "";
+  assert.match(page, /id="actionMenuButton"[^>]+aria-controls="actionDrawer"/);
+  assert.match(page, /id="actionDrawer"[^>]+role="group"[^>]+inert/);
+  assert.doesNotMatch(sidebar, /id="drawer(?:NewThread|Refresh|Theme|Language)Button"/);
+  assert.match(app, /function openActionDrawer\(\)/);
+  assert.match(app, /closeActionDrawer\(\);\s*\n\s*document\.body\.classList\.add\("drawer-open"\)/);
 });

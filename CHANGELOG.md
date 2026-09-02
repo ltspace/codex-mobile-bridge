@@ -2,6 +2,22 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## 0.6.2 - 2026-09-02
+
+### Changed
+
+- Moved the four compact-screen actions out of the conversation drawer and into
+  a separate top-bar drawer so the conversation history keeps the available height.
+
+## 0.6.1 - 2026-09-02
+
+### Fixed
+
+- Replaced the inconsistent mobile browser `datalist` picker with a touch-friendly
+  recent-directory dropdown while retaining manual absolute-path entry.
+- Release the Codex thread writer after each completed mobile turn so the same
+  conversation can be resumed immediately from the desktop client.
+
 ## 0.6.0 - 2026-09-02
 
 ### Added

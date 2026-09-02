@@ -51,6 +51,9 @@ setTheme(document.documentElement.dataset.theme, { persist: false });
 
 const THREAD_PAGE_SIZE = 30;
 const TURN_PAGE_SIZE = 10;
+const compactActionLayout = matchMedia("(max-width: 520px)");
+let recentWorkspaces = [];
+let activeWorkspaceIndex = -1;
 
 const { emptyState, isNearBottom, renderMessages, renderEntryBody, scrollToBottom } = createMessageView({
   elements,
@@ -145,9 +148,30 @@ function toast(message) {
 const pwaController = createPwaController();
 
 function openDrawer() {
+  closeActionDrawer();
   document.body.classList.add("drawer-open");
   elements.drawerBackdrop.classList.remove("hidden");
   elements.menuButton.setAttribute("aria-expanded", "true");
+}
+
+function openActionDrawer() {
+  if (!compactActionLayout.matches) return;
+  closeDrawer();
+  document.body.classList.add("action-drawer-open");
+  elements.actionDrawer.inert = false;
+  elements.actionDrawer.setAttribute("aria-hidden", "false");
+  elements.actionDrawerBackdrop.classList.remove("hidden");
+  elements.actionMenuButton.setAttribute("aria-expanded", "true");
+}
+
+function closeActionDrawer({ restoreFocus = false } = {}) {
+  const wasOpen = document.body.classList.contains("action-drawer-open");
+  document.body.classList.remove("action-drawer-open");
+  elements.actionDrawer.inert = true;
+  elements.actionDrawer.setAttribute("aria-hidden", "true");
+  elements.actionDrawerBackdrop.classList.add("hidden");
+  elements.actionMenuButton.setAttribute("aria-expanded", "false");
+  if (restoreFocus && wasOpen) elements.actionMenuButton.focus();
 }
 
 function closeDrawer() {
@@ -658,30 +682,76 @@ async function respondRequest(requestId, body) {
   }
 }
 
+function workspaceOptionsOpen() {
+  return !elements.workspaceOptions.classList.contains("hidden");
+}
+
+function setWorkspaceOptionsOpen(open) {
+  const next = Boolean(open && recentWorkspaces.length);
+  elements.workspaceOptions.classList.toggle("hidden", !next);
+  elements.newCwd.setAttribute("aria-expanded", String(next));
+  elements.workspaceToggle.setAttribute("aria-expanded", String(next));
+  if (!next) activeWorkspaceIndex = -1;
+}
+
+function renderWorkspaceOptions() {
+  elements.workspaceOptions.replaceChildren(...recentWorkspaces.map(({ cwd }, index) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = `workspace-option${index === activeWorkspaceIndex ? " active" : ""}`;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(cwd === elements.newCwd.value));
+    option.textContent = cwd;
+    option.addEventListener("click", () => {
+      elements.newCwd.value = cwd;
+      setWorkspaceOptionsOpen(false);
+      elements.workspaceToggle.focus();
+    });
+    return option;
+  }));
+}
+
+function toggleWorkspaceOptions() {
+  if (!recentWorkspaces.length) return;
+  const open = !workspaceOptionsOpen();
+  if (open) renderWorkspaceOptions();
+  setWorkspaceOptionsOpen(open);
+}
+
+function moveWorkspaceSelection(offset) {
+  if (!recentWorkspaces.length) return;
+  if (!workspaceOptionsOpen()) setWorkspaceOptionsOpen(true);
+  activeWorkspaceIndex = Math.max(0, Math.min(recentWorkspaces.length - 1, activeWorkspaceIndex + offset));
+  renderWorkspaceOptions();
+  elements.workspaceOptions.children[activeWorkspaceIndex]?.scrollIntoView({ block: "nearest" });
+}
+
 async function openNewThread() {
   elements.newThreadModal.classList.remove("hidden");
+  setWorkspaceOptionsOpen(false);
   elements.newThreadHint.className = "form-hint";
   elements.newThreadHint.textContent = t("new.loadingWorkspaces");
   const remembered = localStorage.getItem("codexBridge.lastCwd") || state.selected?.cwd || "";
   try {
     const result = await api("/api/workspaces");
-    const workspaces = result.data || [];
-    elements.workspaceOptions.replaceChildren(...workspaces.map(({ cwd }) => {
-      const option = document.createElement("option");
-      option.value = cwd;
-      return option;
-    }));
-    elements.newCwd.value = remembered || workspaces[0]?.cwd || "";
-    elements.newThreadHint.textContent = workspaces.length ? t("new.workspacesFound", { count: workspaces.length }) : t("new.enterAbsolute");
+    recentWorkspaces = result.data || [];
+    elements.newCwd.value = remembered || recentWorkspaces[0]?.cwd || "";
+    renderWorkspaceOptions();
+    elements.workspaceToggle.disabled = recentWorkspaces.length === 0;
+    elements.newThreadHint.textContent = recentWorkspaces.length ? t("new.workspacesFound", { count: recentWorkspaces.length }) : t("new.enterAbsolute");
   } catch (error) {
+    recentWorkspaces = [];
+    renderWorkspaceOptions();
+    elements.workspaceToggle.disabled = true;
     elements.newCwd.value = remembered;
     elements.newThreadHint.className = "form-hint error";
     elements.newThreadHint.textContent = errorInfo(error).message;
   }
-  setTimeout(() => elements.newCwd.focus(), 0);
+  if (matchMedia("(pointer: fine)").matches) setTimeout(() => elements.newCwd.focus(), 0);
 }
 
 function closeNewThread() {
+  setWorkspaceOptionsOpen(false);
   elements.newThreadModal.classList.add("hidden");
 }
 
@@ -769,9 +839,11 @@ function connectEvents() {
 }
 
 elements.menuButton.addEventListener("click", () => document.body.classList.contains("drawer-open") ? closeDrawer() : openDrawer());
+elements.actionMenuButton.addEventListener("click", () => document.body.classList.contains("action-drawer-open") ? closeActionDrawer() : openActionDrawer());
 elements.themeButton.addEventListener("click", toggleTheme);
 elements.languageButton.addEventListener("click", toggleLanguage);
 elements.drawerBackdrop.addEventListener("click", closeDrawer);
+elements.actionDrawerBackdrop.addEventListener("click", () => closeActionDrawer({ restoreFocus: true }));
 async function refreshAll() {
   elements.refreshButton.disabled = true;
   elements.drawerRefreshButton.disabled = true;
@@ -783,11 +855,20 @@ async function refreshAll() {
 }
 
 elements.refreshButton.addEventListener("click", refreshAll);
-elements.drawerRefreshButton.addEventListener("click", refreshAll);
-elements.drawerThemeButton.addEventListener("click", toggleTheme);
-elements.drawerLanguageButton.addEventListener("click", toggleLanguage);
+elements.drawerRefreshButton.addEventListener("click", () => {
+  closeActionDrawer({ restoreFocus: true });
+  void refreshAll();
+});
+elements.drawerThemeButton.addEventListener("click", () => {
+  toggleTheme();
+  closeActionDrawer({ restoreFocus: true });
+});
+elements.drawerLanguageButton.addEventListener("click", () => {
+  toggleLanguage();
+  closeActionDrawer({ restoreFocus: true });
+});
 elements.drawerNewThreadButton.addEventListener("click", () => {
-  closeDrawer();
+  closeActionDrawer({ restoreFocus: true });
   openNewThread();
 });
 elements.loadMoreThreads.addEventListener("click", () => loadThreads({ append: true }));
@@ -813,10 +894,27 @@ elements.composer.addEventListener("submit", sendMessage);
 elements.stopButton.addEventListener("click", stopTurn);
 elements.newThreadButton.addEventListener("click", openNewThread);
 elements.newThreadForm.addEventListener("submit", createThread);
+elements.workspaceToggle.addEventListener("click", toggleWorkspaceOptions);
+elements.newCwd.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveWorkspaceSelection(event.key === "ArrowDown" ? 1 : -1);
+  } else if (event.key === "Enter" && workspaceOptionsOpen() && activeWorkspaceIndex >= 0) {
+    event.preventDefault();
+    elements.newCwd.value = recentWorkspaces[activeWorkspaceIndex].cwd;
+    setWorkspaceOptionsOpen(false);
+  } else if (event.key === "Escape" && workspaceOptionsOpen()) {
+    event.preventDefault();
+    setWorkspaceOptionsOpen(false);
+  }
+});
 elements.closeNewThread.addEventListener("click", closeNewThread);
 elements.cancelNewThread.addEventListener("click", closeNewThread);
 elements.newThreadModal.addEventListener("click", (event) => { if (event.target === elements.newThreadModal) closeNewThread(); });
-elements.connectionButton.addEventListener("click", () => refreshHealth({ show: true }));
+elements.connectionButton.addEventListener("click", () => {
+  closeActionDrawer();
+  refreshHealth({ show: true });
+});
 elements.closeConnection.addEventListener("click", () => elements.connectionModal.classList.add("hidden"));
 elements.refreshConnection.addEventListener("click", () => refreshHealth({ show: true }));
 elements.connectionModal.addEventListener("click", (event) => { if (event.target === elements.connectionModal) elements.connectionModal.classList.add("hidden"); });
@@ -836,6 +934,14 @@ window.addEventListener("online", () => {
   void syncSelectedThread();
 });
 window.addEventListener("offline", () => setConnection("offline", false));
+compactActionLayout.addEventListener("change", (event) => {
+  if (!event.matches) closeActionDrawer();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("action-drawer-open")) {
+    closeActionDrawer({ restoreFocus: true });
+  }
+});
 document.addEventListener("bridge:languagechange", () => {
   syncThemeButton();
   setConnection(state.connection, state.ready);

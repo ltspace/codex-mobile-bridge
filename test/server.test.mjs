@@ -54,7 +54,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.6.0");
+  assert.equal(health.version, "0.6.2");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -132,12 +132,21 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
   assert.equal(sentResponse.status, 202);
   assert.equal((await sentResponse.json()).turn.id, "turn-live");
+  const releaseDeadline = Date.now() + 2_000;
+  let releasedHealth;
+  while (Date.now() < releaseDeadline) {
+    releasedHealth = await (await fetch(`${baseUrl}/api/health`)).json();
+    if (releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"] >= 1) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  assert.equal(releasedHealth.activeTurns["draft-1"], undefined);
+  assert.equal(releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"], 1);
   const metrics = await (await fetch(`${baseUrl}/api/metrics`)).json();
   assert.ok(metrics.http.requestsTotal >= 8);
   assert.ok(metrics.http.errorsTotal >= 2);
   assert.ok(metrics.rpc.requestsTotal >= 5);
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.0"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.2"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

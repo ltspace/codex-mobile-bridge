@@ -50,6 +50,7 @@ export class ThreadService {
     this.approvalPolicy = approvalPolicy;
     this.sandboxMode = sandboxMode;
     this.activeTurns = new Map();
+    this.releasePromises = new Map();
     this.serverRequests = new Map();
     this.threadListCache = new Map();
     this.threadListInflight = new Map();
@@ -57,7 +58,10 @@ export class ThreadService {
     client.on("notification", (message) => this.#notification(message));
     client.on("serverRequest", (message) => this.#serverRequest(message));
     client.on("state", (snapshot) => {
-      if (!snapshot.ready) this.serverRequests.clear();
+      if (!snapshot.ready) {
+        this.activeTurns.clear();
+        this.serverRequests.clear();
+      }
       eventHub.publish("bridge/state", this.snapshot());
     });
   }
@@ -238,6 +242,7 @@ export class ThreadService {
           details: { turnId: activeTurnId },
         });
       }
+      await this.#waitForRelease(threadId);
       if (!this.stateStore.hasDraft(threadId)) {
         await this.client.request("thread/resume", { threadId });
       }
@@ -316,9 +321,34 @@ export class ThreadService {
     const threadId = threadIdFrom(params);
     const turnId = turnIdFrom(params);
     if (message.method === "turn/started" && threadId && turnId) this.activeTurns.set(threadId, turnId);
-    if (message.method === "turn/completed" && threadId) this.activeTurns.delete(threadId);
+    if (message.method === "turn/completed" && threadId) {
+      this.activeTurns.delete(threadId);
+      void this.#releaseThread(threadId);
+    }
     if (/^(thread\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
     this.eventHub.publish(message.method, params);
+  }
+
+  #releaseThread(threadId) {
+    const pending = this.releasePromises.get(threadId);
+    if (pending) return pending;
+    const release = this.client.request("thread/unsubscribe", { threadId })
+      .catch((error) => {
+        this.eventHub.publish("bridge/threadReleaseFailed", {
+          threadId,
+          error: String(error?.message || error),
+        });
+      })
+      .finally(() => {
+        if (this.releasePromises.get(threadId) === release) this.releasePromises.delete(threadId);
+      });
+    this.releasePromises.set(threadId, release);
+    return release;
+  }
+
+  async #waitForRelease(threadId) {
+    const pending = this.releasePromises.get(threadId);
+    if (pending) await pending;
   }
 
   #invalidateThreadList() {

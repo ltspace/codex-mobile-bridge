@@ -33,39 +33,43 @@
         <span id="connectionDot" class="connection-dot"></span>
         <span id="connectionText" data-i18n="connection.connecting">Connecting</span>
       </button>
+      <button id="actionMenuButton" class="icon-button action-menu-button" type="button" aria-label="More actions" data-i18n-aria-label="menu.actions" aria-expanded="false" aria-controls="actionDrawer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle></svg>
+      </button>
       <button id="newThreadButton" class="primary compact" type="button" data-i18n="actions.new">New</button>
       <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh" data-i18n-aria-label="actions.refresh">↻</button>
+      <div id="actionDrawer" class="action-drawer" role="group" aria-label="More actions" data-i18n-aria-label="menu.actions" aria-hidden="true" inert>
+        <button id="drawerNewThreadButton" class="drawer-action primary" type="button">
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></svg>
+          </span>
+          <span data-i18n="actions.new">New</span>
+        </button>
+        <button id="drawerRefreshButton" class="drawer-action" type="button">
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20.5 8.5A9 9 0 1 0 21 12M20.5 4.5v4h-4"></path></svg>
+          </span>
+          <span data-i18n="actions.refresh">Refresh</span>
+        </button>
+        <button id="drawerThemeButton" class="drawer-action theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 3v2M12 19v2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M3 12h2M19 12h2M5.64 18.36l1.42-1.42M16.94 7.06l1.42-1.42"></path></svg>
+            <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg>
+          </span>
+          <span id="drawerThemeText">Switch theme</span>
+        </button>
+        <button id="drawerLanguageButton" class="drawer-action" type="button" title="Switch to Chinese" data-i18n-title="language.switch" aria-label="Switch to Chinese" data-i18n-aria-label="language.switch">
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+          </span>
+          <span data-i18n="language.switch">Switch to Chinese</span>
+        </button>
+      </div>
     </header>
+    <button id="actionDrawerBackdrop" class="action-drawer-backdrop hidden" type="button" aria-label="Close actions" data-i18n-aria-label="menu.closeActions"></button>
 
     <div class="workspace">
       <aside id="sidebar" class="sidebar" aria-label="Conversation list" data-i18n-aria-label="threads.list">
-        <div class="drawer-actions">
-          <button id="drawerNewThreadButton" class="drawer-action primary" type="button">
-            <span class="drawer-action-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></svg>
-            </span>
-            <span data-i18n="actions.new">New</span>
-          </button>
-          <button id="drawerRefreshButton" class="drawer-action" type="button">
-            <span class="drawer-action-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M20.5 8.5A9 9 0 1 0 21 12M20.5 4.5v4h-4"></path></svg>
-            </span>
-            <span data-i18n="actions.refresh">Refresh</span>
-          </button>
-          <button id="drawerThemeButton" class="drawer-action theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">
-            <span class="drawer-action-icon" aria-hidden="true">
-              <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 3v2M12 19v2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M3 12h2M19 12h2M5.64 18.36l1.42-1.42M16.94 7.06l1.42-1.42"></path></svg>
-              <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg>
-            </span>
-            <span id="drawerThemeText">Switch theme</span>
-          </button>
-          <button id="drawerLanguageButton" class="drawer-action" type="button" title="Switch to Chinese" data-i18n-title="language.switch" aria-label="Switch to Chinese" data-i18n-aria-label="language.switch">
-            <span class="drawer-action-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
-            </span>
-            <span data-i18n="language.switch">Switch to Chinese</span>
-          </button>
-        </div>
         <div class="sidebar-tools">
           <label class="search-box">
             <span>⌕</span>
@@ -119,11 +123,14 @@
         <div><h2 id="newThreadTitle" data-i18n="new.title">New conversation</h2><p data-i18n="new.description">Choose a working directory on this computer.</p></div>
         <button id="closeNewThread" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button>
       </div>
-      <label class="field">
-        <span data-i18n="new.cwd">Working directory</span>
-        <input id="newCwd" list="workspaceOptions" placeholder="C:\path\to\project" data-i18n-placeholder="new.cwdPlaceholder" autocomplete="off" required>
-        <datalist id="workspaceOptions"></datalist>
-      </label>
+      <div class="field">
+        <label for="newCwd" data-i18n="new.cwd">Working directory</label>
+        <div class="workspace-combobox">
+          <input id="newCwd" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="workspaceOptions" placeholder="C:\path\to\project" data-i18n-placeholder="new.cwdPlaceholder" autocomplete="off" required>
+          <button id="workspaceToggle" class="workspace-toggle" type="button" aria-label="Choose a recent directory" data-i18n-aria-label="new.chooseRecent" aria-expanded="false" aria-controls="workspaceOptions">⌄</button>
+        </div>
+        <div id="workspaceOptions" class="workspace-options hidden" role="listbox"></div>
+      </div>
       <label class="check-field"><input id="ephemeralThread" type="checkbox"> <span data-i18n="new.ephemeral">Temporary conversation (do not retain after closing)</span></label>
       <div id="newThreadHint" class="form-hint" data-i18n="new.loadingWorkspaces">Loading recent directories…</div>
       <div class="modal-actions">

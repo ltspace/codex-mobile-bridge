@@ -3,6 +3,9 @@ const byId = (id) => document.getElementById(id);
 export const elements = {
   menuButton: byId("menuButton"),
   drawerBackdrop: byId("drawerBackdrop"),
+  actionMenuButton: byId("actionMenuButton"),
+  actionDrawer: byId("actionDrawer"),
+  actionDrawerBackdrop: byId("actionDrawerBackdrop"),
   connectionButton: byId("connectionButton"),
   themeButton: byId("themeButton"),
   languageButton: byId("languageButton"),
@@ -40,6 +43,7 @@ export const elements = {
   cancelNewThread: byId("cancelNewThread"),
   createThreadButton: byId("createThreadButton"),
   newCwd: byId("newCwd"),
+  workspaceToggle: byId("workspaceToggle"),
   workspaceOptions: byId("workspaceOptions"),
   ephemeralThread: byId("ephemeralThread"),
   newThreadHint: byId("newThreadHint"),
