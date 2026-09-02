@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="color-scheme" content="dark light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="/modules/theme-init.js"></script>
+  <title>Codex Bridge</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button id="menuButton" class="icon-button mobile-only" type="button" aria-label="Open conversation list" data-i18n-aria-label="menu.open" aria-expanded="false">☰</button>
+      <div class="brand">
+        <img class="brand-mark" src="/icon.svg" alt="" aria-hidden="true">
+        <div><strong>Codex Bridge</strong><small id="bridgeVersion" data-i18n="app.subtitle">Mobile console</small></div>
+      </div>
+      <button id="themeButton" class="icon-button theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path></svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z"></path></svg>
+      </button>
+      <button id="languageButton" class="language-toggle" type="button" title="Switch to Chinese" aria-label="Switch to Chinese">中</button>
+      <button id="connectionButton" class="connection-pill" type="button" title="View connection status" data-i18n-title="connection.inspect">
+        <span id="connectionDot" class="connection-dot"></span>
+        <span id="connectionText" data-i18n="connection.connecting">Connecting</span>
+      </button>
+      <button id="newThreadButton" class="primary compact" type="button" data-i18n="actions.new">New</button>
+      <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh" data-i18n-aria-label="actions.refresh">↻</button>
+    </header>
+
+    <div class="workspace">
+      <aside id="sidebar" class="sidebar" aria-label="Conversation list" data-i18n-aria-label="threads.list">
+        <div class="sidebar-tools">
+          <label class="search-box">
+            <span>⌕</span>
+            <input id="threadSearch" type="search" placeholder="Search conversations" data-i18n-placeholder="threads.search" autocomplete="off">
+          </label>
+          <div class="sidebar-summary"><span id="threadCount">0 conversations</span><span data-i18n="threads.recentFirst">Recently updated first</span></div>
+        </div>
+        <nav id="threadList" class="thread-list"><div class="list-state" data-i18n="threads.loading">Loading conversations…</div></nav>
+        <button id="loadMoreThreads" class="load-more hidden" type="button" data-i18n="actions.loadMore">Load more conversations</button>
+        <div class="trust-note"><span data-i18n="trust.fullAccess">Full access</span> <b data-i18n="trust.tailnetOnly">Trusted Tailscale devices only</b></div>
+      </aside>
+      <button id="drawerBackdrop" class="drawer-backdrop hidden" type="button" aria-label="Close conversation list" data-i18n-aria-label="menu.close"></button>
+
+      <main class="chat">
+        <section class="chat-header">
+          <div class="chat-identity">
+            <strong id="chatTitle" data-i18n="threads.select">Select a Codex conversation</strong>
+            <span id="chatMeta" data-i18n="threads.selectHelp">Open one from the list or create a new one</span>
+          </div>
+          <div id="turnState" class="turn-state idle"><span></span><b data-i18n="turn.idle">Idle</b></div>
+        </section>
+
+        <div id="banner" class="banner hidden" role="status">
+          <span id="bannerText"></span>
+          <button id="bannerRetry" class="text-button hidden" type="button" data-i18n="actions.retry">Retry</button>
+          <button id="bannerClose" class="text-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button>
+        </div>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <div class="empty-state"><span class="empty-icon">⌁</span><strong data-i18n="connection.initialTitle">Connecting to Codex</strong><small data-i18n="connection.initialHelp">The first connection may take a few seconds</small></div>
+        </section>
+        <button id="scrollBottom" class="scroll-bottom hidden" type="button" aria-label="Jump to newest message" data-i18n-aria-label="message.jumpLatest">↓</button>
+
+        <section id="requests" class="requests" aria-live="assertive"></section>
+
+        <footer class="composer-wrap">
+          <div id="composerHint" class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
+          <form id="composer" class="composer">
+            <textarea id="messageInput" rows="1" maxlength="20000" placeholder="Send a message to Codex…" data-i18n-placeholder="composer.placeholder" disabled></textarea>
+            <button id="stopButton" class="stop hidden" type="button" data-i18n="actions.stop">Stop</button>
+            <button id="sendButton" class="primary send" type="submit" data-i18n="actions.send" disabled>Send</button>
+          </form>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <div id="newThreadModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="newThreadTitle">
+    <form id="newThreadForm" class="modal-card">
+      <div class="modal-heading">
+        <div><h2 id="newThreadTitle" data-i18n="new.title">New conversation</h2><p data-i18n="new.description">Choose a working directory on this computer.</p></div>
+        <button id="closeNewThread" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button>
+      </div>
+      <label class="field">
+        <span data-i18n="new.cwd">Working directory</span>
+        <input id="newCwd" list="workspaceOptions" placeholder="C:\path\to\project" data-i18n-placeholder="new.cwdPlaceholder" autocomplete="off" required>
+        <datalist id="workspaceOptions"></datalist>
+      </label>
+      <label class="check-field"><input id="ephemeralThread" type="checkbox"> <span data-i18n="new.ephemeral">Temporary conversation (do not retain after closing)</span></label>
+      <div id="newThreadHint" class="form-hint" data-i18n="new.loadingWorkspaces">Loading recent directories…</div>
+      <div class="modal-actions">
+        <button id="cancelNewThread" type="button" data-i18n="actions.cancel">Cancel</button>
+        <button id="createThreadButton" class="primary" type="submit" data-i18n="actions.create">Create conversation</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="connectionModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="connectionTitle">
+    <section class="modal-card status-card">
+      <div class="modal-heading"><div><h2 id="connectionTitle" data-i18n="status.title">Connection status</h2><p data-i18n="status.description">Live status for the computer, bridge, and Codex App Server.</p></div><button id="closeConnection" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button></div>
+      <dl id="connectionDetails" class="status-grid"></dl>
+      <div class="modal-actions"><button id="refreshConnection" class="primary" type="button" data-i18n="actions.recheck">Check again</button></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
