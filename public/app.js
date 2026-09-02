@@ -24,8 +24,11 @@ const THEME_STORAGE_KEY = "codexBridge.theme";
 function syncThemeButton() {
   const isLight = document.documentElement.dataset.theme === "light";
   const label = t(isLight ? "theme.useDark" : "theme.useLight");
-  elements.themeButton.title = label;
-  elements.themeButton.setAttribute("aria-label", label);
+  for (const button of [elements.themeButton, elements.drawerThemeButton]) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+  elements.drawerThemeText.textContent = label;
 }
 
 function setTheme(theme, { persist = true } = {}) {
@@ -766,12 +769,23 @@ elements.menuButton.addEventListener("click", () => document.body.classList.cont
 elements.themeButton.addEventListener("click", toggleTheme);
 elements.languageButton.addEventListener("click", toggleLanguage);
 elements.drawerBackdrop.addEventListener("click", closeDrawer);
-elements.refreshButton.addEventListener("click", async () => {
+async function refreshAll() {
   elements.refreshButton.disabled = true;
+  elements.drawerRefreshButton.disabled = true;
   await Promise.all([loadThreads({ preserveSelection: true }), refreshHealth()]);
   if (state.selected) await selectThread(state.selected, { silent: true });
   elements.refreshButton.disabled = false;
+  elements.drawerRefreshButton.disabled = false;
   toast(t("toast.refreshed"));
+}
+
+elements.refreshButton.addEventListener("click", refreshAll);
+elements.drawerRefreshButton.addEventListener("click", refreshAll);
+elements.drawerThemeButton.addEventListener("click", toggleTheme);
+elements.drawerLanguageButton.addEventListener("click", toggleLanguage);
+elements.drawerNewThreadButton.addEventListener("click", () => {
+  closeDrawer();
+  openNewThread();
 });
 elements.loadMoreThreads.addEventListener("click", () => loadThreads({ append: true }));
 elements.threadSearch.addEventListener("input", () => {

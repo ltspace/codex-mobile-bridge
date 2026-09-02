@@ -24,14 +24,20 @@
 > 下方出现的会话、路径、指标和结果均为专门制作的虚构演示数据，不包含
 > 任何个人信息或生产数据。
 
-<p align="center">
+<p align="center"><strong>桌面端 · 白色</strong><br>
   <img src="docs/screenshots/desktop-light.png" alt="桌面端白色模式，展示虚构的 Codex 工程会话" width="100%">
 </p>
 
-<p align="center">
+<p align="center"><strong>桌面端 · 深色</strong><br>
+  <img src="docs/screenshots/desktop-dark.png" alt="桌面端深色模式，展示相同的虚构 Codex 工程会话" width="100%">
+</p>
+
+<p align="center"><strong>手机端 · 白色</strong><br>
   <img src="docs/screenshots/mobile-light.png" alt="手机端白色模式，展示虚构会话和 Markdown 渲染" width="390">
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/mobile-dark.png" alt="手机端深色模式，展示相同的虚构 Codex 工程会话" width="390">
+</p>
+
+<p align="center"><strong>手机端 · 深色</strong><br>
+  <img src="docs/screenshots/mobile-dark.png" alt="手机端深色模式，展示导航抽屉和虚构会话" width="390">
 </p>
 
 ## 功能

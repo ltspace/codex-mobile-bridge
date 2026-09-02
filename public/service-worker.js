@@ -1,4 +1,4 @@
-const CACHE_NAME = "codex-bridge-shell-v6";
+const CACHE_NAME = "codex-bridge-shell-v7";
 const SHELL = [
   "/",
   "/index.html",

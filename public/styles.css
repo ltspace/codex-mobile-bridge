@@ -168,6 +168,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
+.drawer-actions { display: none; }
 .sidebar-tools { padding: 13px 12px 9px; border-bottom: 1px solid var(--line); }
 .search-box {
   height: 40px;
@@ -364,14 +365,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .brand { width: 0; max-width: none; flex: 1 1 0; margin-right: 0; }
   .brand strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
   .brand small { display: none; }
-  .connection-pill { min-width: 38px; flex: 0 0 38px; padding: 7px 9px; }
+  .connection-pill { min-width: 38px; flex: 0 0 38px; padding: 0; justify-content: center; }
   #connectionText { display: none; }
   #newThreadButton { width: 40px; min-width: 40px; flex: 0 0 40px; padding: 0; font-size: 0; }
   #newThreadButton::after { content: "＋"; font-size: 19px; }
-  #refreshButton { display: none; }
+  #refreshButton { display: grid; }
   .workspace { grid-template-columns: 1fr; }
-  .sidebar { position: fixed; z-index: 20; inset: 55px 15% 0 0; transform: translateX(-105%); transition: transform .2s ease; box-shadow: 14px 0 40px var(--drawer-shadow); }
-  body.drawer-open .sidebar { transform: translateX(0); }
+  .sidebar { position: fixed; z-index: 20; inset: 55px 15% 0 0; transform: translateX(-105%); transition: transform .2s ease; }
+  body.drawer-open .sidebar { transform: translateX(0); box-shadow: 14px 0 40px var(--drawer-shadow); }
   .drawer-backdrop { position: fixed; z-index: 19; inset: 55px 0 0; border: 0; border-radius: 0; background: var(--drawer-overlay); }
   .chat-header { min-height: 57px; padding: 8px 12px; }
   .chat-identity strong { font-size: 14px; }
@@ -389,10 +390,27 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .scroll-bottom { right: 12px; bottom: 78px; }
 }
 
-@media (max-width: 420px) {
-  .brand { max-width: 95px; }
+@media (max-width: 520px) {
+  .topbar { padding-inline: 9px; gap: 7px; }
+  .brand { max-width: none; }
   .brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .topbar .icon-button { min-width: 38px; }
+  #themeButton,
+  #languageButton,
+  #newThreadButton,
+  #refreshButton { display: none; }
+  .sidebar { grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  .drawer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .drawer-action { min-width: 0; min-height: 44px; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; font-size: 12px; }
+  .drawer-action-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; font-size: 18px; }
+  .drawer-action-icon .theme-icon { width: 18px; height: 18px; }
+  .drawer-language-icon { font-size: 13px; font-weight: 750; }
 }
 
 @media (prefers-reduced-motion: reduce) {

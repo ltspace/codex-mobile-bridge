@@ -25,14 +25,20 @@ English | [简体中文](./README.zh-CN.md)
 > data created for documentation. No personal or production information is
 > included.
 
-<p align="center">
+<p align="center"><strong>Desktop · Light</strong><br>
   <img src="docs/screenshots/desktop-light.png" alt="Desktop light mode showing a fictional Codex engineering conversation" width="100%">
 </p>
 
-<p align="center">
+<p align="center"><strong>Desktop · Dark</strong><br>
+  <img src="docs/screenshots/desktop-dark.png" alt="Desktop dark mode showing the same fictional Codex engineering conversation" width="100%">
+</p>
+
+<p align="center"><strong>Mobile · Light</strong><br>
   <img src="docs/screenshots/mobile-light.png" alt="Mobile light mode showing a fictional conversation with Markdown rendering" width="390">
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/mobile-dark.png" alt="Mobile dark mode showing the same fictional Codex engineering conversation" width="390">
+</p>
+
+<p align="center"><strong>Mobile · Dark</strong><br>
+  <img src="docs/screenshots/mobile-dark.png" alt="Mobile dark mode showing the navigation drawer and fictional conversations" width="390">
 </p>
 
 ## Features
