@@ -54,6 +54,9 @@ reader.on("line", (line) => {
     send({ id, result: { thread: { id: params.threadId, status: { type: "idle" } } } });
   } else if (method === "thread/unsubscribe") {
     send({ id, result: { status: "unsubscribed" } });
+  } else if (method === "thread/archive") {
+    send({ id, result: {} });
+    send({ method: "thread/archived", params: { threadId: params.threadId } });
   } else if (method === "turn/start") {
     turnId += 1;
     const turn = { id: `turn-live-${turnId}`, status: "inProgress", items: [] };

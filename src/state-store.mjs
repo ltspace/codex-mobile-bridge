@@ -41,6 +41,10 @@ export class BridgeStateStore {
     return this.queuedMessages.find((item) => item.threadId === threadId) || null;
   }
 
+  queuedMessageCount(threadId) {
+    return this.queuedMessages.filter((item) => item.threadId === threadId).length;
+  }
+
   removeQueuedMessage(id) {
     const index = this.queuedMessages.findIndex((item) => item.id === id);
     if (index < 0) return false;
@@ -59,7 +63,7 @@ export class BridgeStateStore {
       queuedMessages: this.queuedMessages.length,
       queuedByThread: Object.fromEntries(this.queuedThreadIds().map((threadId) => [
         threadId,
-        this.queuedMessages.filter((item) => item.threadId === threadId).length,
+        this.queuedMessageCount(threadId),
       ])),
     };
   }

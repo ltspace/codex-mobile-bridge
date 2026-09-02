@@ -112,7 +112,9 @@ test("mobile actions use a topbar drawer instead of consuming conversation-list 
   const sidebar = page.match(/<aside id="sidebar"[\s\S]*?<\/aside>/)?.[0] || "";
   assert.match(page, /id="actionMenuButton"[^>]+aria-controls="actionDrawer"/);
   assert.match(page, /id="actionDrawer"[^>]+role="group"[^>]+inert/);
-  assert.doesNotMatch(sidebar, /id="drawer(?:NewThread|Refresh|Theme|Language)Button"/);
+  assert.match(page, /id="drawerArchiveThreadButton"/);
+  assert.doesNotMatch(sidebar, /id="drawer(?:NewThread|Refresh|ArchiveThread|Theme|Language)Button"/);
   assert.match(app, /function openActionDrawer\(\)/);
+  assert.match(app, /thread\/archive/);
   assert.match(app, /closeActionDrawer\(\);\s*\n\s*document\.body\.classList\.add\("drawer-open"\)/);
 });

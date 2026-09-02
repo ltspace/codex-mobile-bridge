@@ -170,6 +170,32 @@ export class ThreadService {
     }
   }
 
+  async archiveThread(threadId) {
+    const activeTurnId = this.activeTurns.get(threadId);
+    if (activeTurnId) {
+      throw new BridgeError("当前会话仍在运行，完成或停止后才能归档", {
+        status: 409,
+        code: "turn_active",
+        details: { turnId: activeTurnId },
+      });
+    }
+    if (this.stateStore.queuedMessageCount(threadId) > 0) {
+      throw new BridgeError("当前会话仍有排队消息，发送完成后才能归档", {
+        status: 409,
+        code: "thread_has_queued_messages",
+      });
+    }
+    try {
+      await this.#waitForRelease(threadId);
+      const result = await this.client.request("thread/archive", { threadId });
+      this.stateStore.removeDraft(threadId);
+      this.#invalidateThreadList();
+      return result;
+    } catch (error) {
+      throw rpcFailure(error);
+    }
+  }
+
   async getTurns(threadId, { limit = 10, cursor = null, compact = true } = {}) {
     try {
       const result = await this.client.request("thread/turns/list", {
@@ -412,6 +438,7 @@ export class ThreadService {
           threadId,
           queueId: item.id,
           turnId: result?.turn?.id || null,
+          remaining: this.stateStore.queuedMessageCount(threadId),
         });
       })
       .catch((error) => {

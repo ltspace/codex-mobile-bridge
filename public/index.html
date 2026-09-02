@@ -38,6 +38,9 @@
       </button>
       <button id="newThreadButton" class="primary compact" type="button" data-i18n="actions.new">New</button>
       <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh" data-i18n-aria-label="actions.refresh">↻</button>
+      <button id="archiveThreadButton" class="icon-button archive-action" type="button" title="Archive conversation" aria-label="Archive conversation" data-i18n-title="actions.archive" data-i18n-aria-label="actions.archive" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h16v12H4zM3 4.5h18v3H3zM9 11.5h6"></path></svg>
+      </button>
       <div id="actionDrawer" class="action-drawer" role="group" aria-label="More actions" data-i18n-aria-label="menu.actions" aria-hidden="true" inert>
         <button id="drawerNewThreadButton" class="drawer-action primary" type="button">
           <span class="drawer-action-icon" aria-hidden="true">
@@ -50,6 +53,12 @@
             <svg viewBox="0 0 24 24"><path d="M20.5 8.5A9 9 0 1 0 21 12M20.5 4.5v4h-4"></path></svg>
           </span>
           <span data-i18n="actions.refresh">Refresh</span>
+        </button>
+        <button id="drawerArchiveThreadButton" class="drawer-action drawer-archive-action archive-action" type="button" disabled>
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7.5h16v12H4zM3 4.5h18v3H3zM9 11.5h6"></path></svg>
+          </span>
+          <span data-i18n="actions.archive">Archive conversation</span>
         </button>
         <button id="drawerThemeButton" class="drawer-action theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">
           <span class="drawer-action-icon" aria-hidden="true">

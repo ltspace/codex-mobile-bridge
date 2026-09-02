@@ -54,7 +54,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.6.3");
+  assert.equal(health.version, "0.6.4");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -133,6 +133,12 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(sentResponse.status, 202);
   assert.equal((await sentResponse.json()).turn.id, "turn-live-1");
 
+  const activeArchiveResponse = await fetch(`${baseUrl}/api/threads/draft-1/archive`, {
+    method: "POST",
+  });
+  assert.equal(activeArchiveResponse.status, 409);
+  assert.equal((await activeArchiveResponse.json()).error.code, "turn_active");
+
   const queuedResponse = await fetch(`${baseUrl}/api/threads/draft-1/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -155,12 +161,17 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(releasedHealth.drafts.queuedMessages, 0);
   assert.equal(releasedHealth.metrics.rpc.byMethod["turn/start"], 2);
   assert.equal(releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"], 2);
+  const archiveResponse = await fetch(`${baseUrl}/api/threads/draft-1/archive`, {
+    method: "POST",
+  });
+  assert.equal(archiveResponse.status, 200);
   const metrics = await (await fetch(`${baseUrl}/api/metrics`)).json();
   assert.ok(metrics.http.requestsTotal >= 8);
   assert.ok(metrics.http.errorsTotal >= 2);
   assert.ok(metrics.rpc.requestsTotal >= 5);
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
+  assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.3"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.4"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

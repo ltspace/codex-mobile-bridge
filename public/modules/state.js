@@ -14,6 +14,7 @@ export const state = {
   historySyncPromise: null,
   historySyncQueued: false,
   activeTurns: {},
+  queuedByThread: {},
   activeTurnId: null,
   busy: false,
   submitting: false,

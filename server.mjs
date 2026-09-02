@@ -10,7 +10,7 @@ import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 
-const VERSION = "0.6.3";
+const VERSION = "0.6.4";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -108,6 +108,7 @@ function routeName(method, pathname) {
   if (/^\/api\/threads\/[^/]+\/turns\/[^/]+\/items\/[^/]+$/.test(pathname)) return "item_detail";
   if (/^\/api\/threads\/[^/]+\/send$/.test(pathname)) return "turn_send";
   if (/^\/api\/threads\/[^/]+\/interrupt$/.test(pathname)) return "turn_interrupt";
+  if (/^\/api\/threads\/[^/]+\/archive$/.test(pathname)) return "thread_archive";
   if (/^\/api\/threads\/[^/]+$/.test(pathname)) return "thread_read";
   if (/^\/api\/requests\/[^/]+$/.test(pathname)) return "request_response";
   return pathname.startsWith("/api/") ? "api_unknown" : "static";
@@ -217,6 +218,12 @@ async function handleApi(request, response, url, id) {
   if (interruptMatch && request.method === "POST") {
     const body = await readJson(request, MAX_BODY_BYTES);
     json(response, 200, await threads.interrupt(pathId(interruptMatch), typeof body.turnId === "string" ? body.turnId : null), id);
+    return true;
+  }
+
+  const archiveMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/archive$/);
+  if (archiveMatch && request.method === "POST") {
+    json(response, 200, await threads.archiveThread(pathId(archiveMatch)), id);
     return true;
   }
 

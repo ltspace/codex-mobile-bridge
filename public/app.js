@@ -54,6 +54,7 @@ const TURN_PAGE_SIZE = 10;
 const compactActionLayout = matchMedia("(max-width: 520px)");
 let recentWorkspaces = [];
 let activeWorkspaceIndex = -1;
+let archivingThreadId = null;
 
 const { emptyState, isNearBottom, renderMessages, renderEntryBody, scrollToBottom } = createMessageView({
   elements,
@@ -99,6 +100,7 @@ function syncSnapshot(snapshot) {
   state.snapshot = snapshot;
   state.ready = Boolean(snapshot.ready);
   state.activeTurns = snapshot.activeTurns || {};
+  state.queuedByThread = snapshot.drafts?.queuedByThread || {};
   elements.bridgeVersion.textContent = snapshot.version ? `v${snapshot.version}` : t("app.subtitle");
   syncSelectedActivity();
   renderThreads();
@@ -405,6 +407,15 @@ function updateComposer() {
   else if (state.busy && !state.activeTurnId) elements.composerHint.textContent = t("composer.otherClientQueue");
   else if (state.busy) elements.composerHint.textContent = t("composer.queueHint");
   else elements.composerHint.textContent = t("composer.keyboardHint");
+  updateArchiveActions();
+}
+
+function updateArchiveActions() {
+  const threadId = state.selected?.id;
+  const queued = threadId ? Number(state.queuedByThread[threadId] || 0) : 0;
+  const disabled = !threadId || state.busy || state.submitting || queued > 0;
+  elements.archiveThreadButton.disabled = disabled;
+  elements.drawerArchiveThreadButton.disabled = disabled;
 }
 
 function resizeComposer() {
@@ -447,6 +458,7 @@ async function sendMessage(event) {
       updateTurnState();
     } else if (result?.mode === "queue") {
       entry.type = t("message.queued");
+      state.queuedByThread[threadId] = Math.max(Number(state.queuedByThread[threadId] || 0), Number(result.position || 1));
       toast(t("toast.queued", { position: result.position || 1 }));
     } else {
       toast(t("toast.steered"));
@@ -492,6 +504,50 @@ async function stopTurn() {
   }
 }
 
+function clearSelectedThread() {
+  state.selectionVersion += 1;
+  state.selected = null;
+  state.historyItems = [];
+  state.historyCursor = null;
+  state.latestTurnId = null;
+  state.activeTurnId = null;
+  state.busy = false;
+  state.streaming.clear();
+  elements.chatTitle.textContent = t("threads.select");
+  elements.chatMeta.textContent = t("threads.selectHelp");
+  renderMessages();
+  renderRequests();
+  updateTurnState();
+}
+
+async function archiveSelectedThread() {
+  const selected = state.selected;
+  if (!selected || elements.archiveThreadButton.disabled || archivingThreadId) return;
+  if (!window.confirm(t("archive.confirm", { title: titleOf(selected) }))) return;
+  const threadId = selected.id;
+  archivingThreadId = threadId;
+  state.submitting = true;
+  closeActionDrawer();
+  updateComposer();
+  try {
+    await api(`/api/threads/${encodeURIComponent(threadId)}/archive`, { method: "POST" });
+    state.threads = state.threads.filter((thread) => thread.id !== threadId);
+    delete state.queuedByThread[threadId];
+    try { localStorage.removeItem(draftKey(threadId)); } catch {}
+    if (state.selected?.id === threadId) clearSelectedThread();
+    renderThreads();
+    toast(t("toast.archived"));
+    await loadThreads({ preserveSelection: false });
+  } catch (error) {
+    const info = errorInfo(error);
+    showBanner(info.message, { retry: info.retryable ? archiveSelectedThread : null });
+  } finally {
+    archivingThreadId = null;
+    state.submitting = false;
+    updateComposer();
+  }
+}
+
 function handleEvent(event) {
   const { method, params = {} } = event;
   if (method === "bridge/snapshot" || method === "bridge/state") {
@@ -512,6 +568,26 @@ function handleEvent(event) {
 
   const threadId = eventThreadId(params);
   const turnId = eventTurnId(params);
+  if (method === "bridge/messageQueued" && threadId) {
+    state.queuedByThread[threadId] = Math.max(Number(state.queuedByThread[threadId] || 0), Number(params.position || 1));
+    updateArchiveActions();
+    return;
+  }
+  if (method === "bridge/messageDequeued" && threadId) {
+    state.queuedByThread[threadId] = Number(params.remaining || 0);
+    updateArchiveActions();
+    return;
+  }
+  if (method === "thread/archived" && threadId && threadId !== archivingThreadId) {
+    state.threads = state.threads.filter((thread) => thread.id !== threadId);
+    if (state.selected?.id === threadId) {
+      clearSelectedThread();
+      void loadThreads({ preserveSelection: false });
+    } else {
+      renderThreads();
+    }
+    return;
+  }
   if (method === "turn/started" && threadId && turnId) {
     state.activeTurns[threadId] = turnId;
     if (threadId === state.selected?.id) {
@@ -857,10 +933,12 @@ async function refreshAll() {
 }
 
 elements.refreshButton.addEventListener("click", refreshAll);
+elements.archiveThreadButton.addEventListener("click", archiveSelectedThread);
 elements.drawerRefreshButton.addEventListener("click", () => {
   closeActionDrawer({ restoreFocus: true });
   void refreshAll();
 });
+elements.drawerArchiveThreadButton.addEventListener("click", archiveSelectedThread);
 elements.drawerThemeButton.addEventListener("click", () => {
   toggleTheme();
   closeActionDrawer({ restoreFocus: true });
