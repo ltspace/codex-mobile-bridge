@@ -395,16 +395,15 @@ function draftKey(threadId) {
 function updateComposer() {
   const selected = Boolean(state.selected);
   const canConnect = state.ready && state.connection !== "offline";
-  const canSteer = state.busy && Boolean(state.activeTurnId);
-  elements.messageInput.disabled = !selected || !canConnect || state.submitting || (state.busy && !canSteer);
+  elements.messageInput.disabled = !selected || !canConnect || state.submitting;
   elements.sendButton.disabled = elements.messageInput.disabled || !elements.messageInput.value.trim();
-  elements.sendButton.textContent = state.busy ? t("actions.steer") : t("actions.send");
+  elements.sendButton.textContent = state.busy ? t("actions.queue") : t("actions.send");
   elements.stopButton.classList.toggle("hidden", !state.busy || !state.activeTurnId);
   elements.stopButton.disabled = state.submitting;
   if (!selected) elements.composerHint.textContent = t("composer.select");
   else if (!canConnect) elements.composerHint.textContent = t("composer.disconnected");
-  else if (state.busy && !canSteer) elements.composerHint.textContent = t("composer.otherClient");
-  else if (state.busy) elements.composerHint.textContent = t("composer.steerHint");
+  else if (state.busy && !state.activeTurnId) elements.composerHint.textContent = t("composer.otherClientQueue");
+  else if (state.busy) elements.composerHint.textContent = t("composer.queueHint");
   else elements.composerHint.textContent = t("composer.keyboardHint");
 }
 
@@ -421,8 +420,8 @@ async function sendMessage(event) {
   const text = elements.messageInput.value.trim();
   if (!text) return;
   const threadId = state.selected.id;
-  const mode = state.busy ? "steer" : "start";
-  const entry = { id: `local:${Date.now()}`, turnId: null, role: "user", text, type: mode === "steer" ? t("message.steer") : "userMessage", pending: true };
+  const mode = state.busy ? "queue" : "start";
+  const entry = { id: `local:${Date.now()}`, turnId: null, role: "user", text, type: mode === "queue" ? t("message.queued") : "userMessage", pending: true };
   state.historyItems.push(entry);
   elements.messageInput.value = "";
   localStorage.removeItem(draftKey(threadId));
@@ -437,7 +436,7 @@ async function sendMessage(event) {
       timeoutMs: 45_000,
     });
     entry.pending = false;
-    if (mode === "start") {
+    if (result?.mode === "start") {
       const turnId = result?.turn?.id || null;
       if (turnId) {
         entry.turnId = turnId;
@@ -446,6 +445,9 @@ async function sendMessage(event) {
       }
       state.busy = true;
       updateTurnState();
+    } else if (result?.mode === "queue") {
+      entry.type = t("message.queued");
+      toast(t("toast.queued", { position: result.position || 1 }));
     } else {
       toast(t("toast.steered"));
     }

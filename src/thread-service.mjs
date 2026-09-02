@@ -51,6 +51,9 @@ export class ThreadService {
     this.sandboxMode = sandboxMode;
     this.activeTurns = new Map();
     this.releasePromises = new Map();
+    this.queueDrains = new Map();
+    this.queueRetryTimers = new Map();
+    this.queueRetryCounts = new Map();
     this.serverRequests = new Map();
     this.threadListCache = new Map();
     this.threadListInflight = new Map();
@@ -61,6 +64,8 @@ export class ThreadService {
       if (!snapshot.ready) {
         this.activeTurns.clear();
         this.serverRequests.clear();
+      } else {
+        this.#drainAllQueues();
       }
       eventHub.publish("bridge/state", this.snapshot());
     });
@@ -215,9 +220,14 @@ export class ThreadService {
         code: "invalid_message",
       });
     }
+    if (!["start", "steer", "queue"].includes(mode)) {
+      throw new BridgeError("不支持的消息发送模式", { status: 400, code: "invalid_send_mode" });
+    }
     const input = [{ type: "text", text: cleanText }];
 
     try {
+      if (mode === "queue") return this.#enqueueMessage(threadId, cleanText);
+
       if (mode === "steer") {
         const activeTurnId = expectedTurnId || this.activeTurns.get(threadId);
         if (!activeTurnId) {
@@ -242,23 +252,11 @@ export class ThreadService {
           details: { turnId: activeTurnId },
         });
       }
-      await this.#waitForRelease(threadId);
-      if (!this.stateStore.hasDraft(threadId)) {
-        await this.client.request("thread/resume", { threadId });
-      }
-      const result = await this.client.request("turn/start", {
-        threadId,
-        input,
-        approvalPolicy: this.approvalPolicy,
-        sandboxPolicy: { type: this.#sandboxPolicyType() },
-      });
-      this.stateStore.removeDraft(threadId);
-      this.#invalidateThreadList();
-      const turnId = result?.turn?.id || null;
-      if (turnId) this.activeTurns.set(threadId, turnId);
-      return { mode: "start", ...result };
+      return await this.#startTurn(threadId, input);
     } catch (error) {
-      throw rpcFailure(error);
+      const failure = rpcFailure(error);
+      if (failure?.code === "thread_in_use") return this.#enqueueMessage(threadId, cleanText);
+      throw failure;
     }
   }
 
@@ -323,7 +321,7 @@ export class ThreadService {
     if (message.method === "turn/started" && threadId && turnId) this.activeTurns.set(threadId, turnId);
     if (message.method === "turn/completed" && threadId) {
       this.activeTurns.delete(threadId);
-      void this.#releaseThread(threadId);
+      void this.#releaseThread(threadId).finally(() => this.#drainQueue(threadId));
     }
     if (/^(thread\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
     this.eventHub.publish(message.method, params);
@@ -349,6 +347,95 @@ export class ThreadService {
   async #waitForRelease(threadId) {
     const pending = this.releasePromises.get(threadId);
     if (pending) await pending;
+  }
+
+  async #startTurn(threadId, input) {
+    await this.#waitForRelease(threadId);
+    let resumed = false;
+    try {
+      if (!this.stateStore.hasDraft(threadId)) {
+        await this.client.request("thread/resume", { threadId });
+        resumed = true;
+      }
+      const result = await this.client.request("turn/start", {
+        threadId,
+        input,
+        approvalPolicy: this.approvalPolicy,
+        sandboxPolicy: { type: this.#sandboxPolicyType() },
+      });
+      this.stateStore.removeDraft(threadId);
+      this.#invalidateThreadList();
+      const turnId = result?.turn?.id || null;
+      if (turnId) this.activeTurns.set(threadId, turnId);
+      return { mode: "start", ...result };
+    } catch (error) {
+      if (resumed) void this.#releaseThread(threadId);
+      throw error;
+    }
+  }
+
+  #enqueueMessage(threadId, text) {
+    const queued = this.stateStore.enqueueMessage(threadId, text);
+    this.eventHub.publish("bridge/messageQueued", {
+      threadId,
+      queueId: queued.id,
+      position: queued.position,
+    });
+    this.#drainQueue(threadId);
+    return {
+      mode: "queue",
+      queued: true,
+      queueId: queued.id,
+      position: queued.position,
+    };
+  }
+
+  #drainAllQueues() {
+    for (const threadId of this.stateStore.queuedThreadIds()) this.#drainQueue(threadId);
+  }
+
+  #drainQueue(threadId) {
+    if (!this.client.ready || this.activeTurns.has(threadId) || this.queueDrains.has(threadId)) return;
+    const item = this.stateStore.peekQueuedMessage(threadId);
+    if (!item) return;
+    const timer = this.queueRetryTimers.get(threadId);
+    if (timer) {
+      clearTimeout(timer);
+      this.queueRetryTimers.delete(threadId);
+    }
+
+    const drain = this.#startTurn(threadId, [{ type: "text", text: item.text }])
+      .then((result) => {
+        this.stateStore.removeQueuedMessage(item.id);
+        this.queueRetryCounts.delete(threadId);
+        this.eventHub.publish("bridge/messageDequeued", {
+          threadId,
+          queueId: item.id,
+          turnId: result?.turn?.id || null,
+        });
+      })
+      .catch((error) => {
+        const failure = rpcFailure(error);
+        const attempt = (this.queueRetryCounts.get(threadId) || 0) + 1;
+        this.queueRetryCounts.set(threadId, attempt);
+        const delayMs = Math.min(30_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
+        this.eventHub.publish("bridge/messageQueueWaiting", {
+          threadId,
+          queueId: item.id,
+          code: failure?.code || "send_failed",
+          retryInMs: delayMs,
+        });
+        const retry = setTimeout(() => {
+          this.queueRetryTimers.delete(threadId);
+          this.#drainQueue(threadId);
+        }, delayMs);
+        retry.unref();
+        this.queueRetryTimers.set(threadId, retry);
+      })
+      .finally(() => {
+        if (this.queueDrains.get(threadId) === drain) this.queueDrains.delete(threadId);
+      });
+    this.queueDrains.set(threadId, drain);
   }
 
   #invalidateThreadList() {

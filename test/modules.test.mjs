@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { EventHub } from "../src/event-hub.mjs";
 import { resolveSpawnSpec } from "../src/codex-client.mjs";
 import { entriesFromTurns } from "../public/modules/formatters.js";
 import { BridgeMetrics } from "../src/metrics.mjs";
 import { rpcFailure } from "../src/thread-service.mjs";
+import { BridgeStateStore } from "../src/state-store.mjs";
 import { hasTranslation, setLanguage, t } from "../public/modules/i18n.js";
 import { markdownToHtml } from "../public/modules/markdown.js";
 
@@ -54,6 +58,21 @@ test("active thread writer conflicts become an actionable client error", () => {
   assert.equal(error.status, 409);
   assert.equal(error.code, "thread_in_use");
   assert.equal(error.retryable, false);
+});
+
+test("queued follow-ups survive a bridge restart until delivered", async (context) => {
+  const temporary = await mkdtemp(join(tmpdir(), "codex-bridge-queue-test-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const statePath = join(temporary, "state.json");
+  const first = new BridgeStateStore(statePath);
+  const queued = first.enqueueMessage("thread-1", "continue after the current task");
+  assert.equal(queued.position, 1);
+
+  const restored = new BridgeStateStore(statePath);
+  assert.equal(restored.snapshot().queuedMessages, 1);
+  assert.equal(restored.peekQueuedMessage("thread-1").text, "continue after the current task");
+  assert.equal(restored.removeQueuedMessage(queued.id), true);
+  assert.equal(restored.snapshot().queuedMessages, 0);
 });
 
 test("UI messages switch between English and Chinese", () => {

@@ -46,8 +46,10 @@ English | [简体中文](./README.zh-CN.md)
 
 - Search, open, and create Codex conversations.
 - Render responses with Markdown, clickable links, tables, and code blocks.
-- Send messages, steer or stop active turns, and handle supported approval and
-  user-input requests.
+- Send messages, queue follow-ups without interrupting active work, stop turns
+  explicitly, and handle supported approval and user-input requests.
+- Persist mobile follow-ups locally and retry them automatically after another
+  Codex client releases the conversation.
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
   synchronization after reconnecting.
 - Load the latest 10 turns first and fetch large tool details only when opened.

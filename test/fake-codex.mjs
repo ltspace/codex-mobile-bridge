@@ -2,6 +2,7 @@ import readline from "node:readline";
 
 const reader = readline.createInterface({ input: process.stdin });
 let draftId = 0;
+let turnId = 0;
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -54,13 +55,14 @@ reader.on("line", (line) => {
   } else if (method === "thread/unsubscribe") {
     send({ id, result: { status: "unsubscribed" } });
   } else if (method === "turn/start") {
-    const turn = { id: "turn-live", status: "inProgress", items: [] };
+    turnId += 1;
+    const turn = { id: `turn-live-${turnId}`, status: "inProgress", items: [] };
     send({ id, result: { turn } });
     send({ method: "turn/started", params: { threadId: params.threadId, turn } });
     setTimeout(() => {
       send({ method: "item/agentMessage/delta", params: { threadId: params.threadId, turnId: turn.id, itemId: "item-live", delta: "done" } });
       send({ method: "turn/completed", params: { threadId: params.threadId, turn: { ...turn, status: "completed" } } });
-    }, 15);
+    }, 100);
   } else if (method === "turn/steer") {
     send({ id, result: { turnId: params.expectedTurnId } });
   } else if (method === "turn/interrupt") {

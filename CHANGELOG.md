@@ -2,6 +2,17 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## 0.6.3 - 2026-09-02
+
+### Changed
+
+- Keep active answers and tool executions running by queuing mobile follow-up
+  messages instead of steering or interrupting them.
+- Persist queued messages locally and retry automatically when another Codex
+  client releases the conversation writer.
+- Allow composing while a conversation is active in another client, with an
+  explicit queue status in the mobile UI.
+
 ## 0.6.2 - 2026-09-02
 
 ### Changed

@@ -150,7 +150,7 @@ export class CodexClient extends EventEmitter {
 
     try {
       await this.#requestRaw("initialize", {
-        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.5.0" },
+        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.6.3" },
         capabilities: { experimentalApi: true },
       }, 30_000);
       this.#write({ method: "initialized", params: {} });
