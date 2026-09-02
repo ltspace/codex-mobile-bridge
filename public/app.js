@@ -87,7 +87,13 @@ function setConnection(connection, ready = state.ready) {
   state.connection = connection;
   state.ready = ready;
   elements.connectionButton.className = `connection-pill ${connection}`;
-  elements.connectionText.textContent = connection === "online" ? t("connection.online") : connection === "offline" ? t("connection.offline") : t("connection.connecting");
+  elements.connectionText.textContent = connection === "online"
+    ? t("connection.online")
+    : connection === "degraded"
+      ? t("connection.degraded")
+      : connection === "offline"
+        ? t("connection.offline")
+        : t("connection.connecting");
   updateComposer();
 }
 
@@ -212,7 +218,9 @@ function renderThreads() {
   if (!nodes.length) {
     const empty = document.createElement("div");
     empty.className = "list-state";
-    empty.textContent = elements.threadSearch.value.trim() ? t("threads.noMatches") : t("threads.none");
+    empty.textContent = elements.threadSearch.value.trim()
+      ? t("threads.noMatches")
+      : t(state.threadClient === "openclaw" ? "threads.noneOpenClaw" : "threads.none");
     nodes.push(empty);
   }
   elements.threadList.replaceChildren(...nodes);
@@ -223,6 +231,8 @@ function renderThreads() {
 
 async function loadThreads({ append = false, preserveSelection = true } = {}) {
   if (state.threadsLoading) return;
+  const threadClient = state.threadClient;
+  const requestVersion = ++state.threadsRequestVersion;
   state.threadsLoading = true;
   if (!append) {
     state.threadsCursor = null;
@@ -230,11 +240,12 @@ async function loadThreads({ append = false, preserveSelection = true } = {}) {
   }
   renderThreads();
   try {
-    const query = new URLSearchParams({ limit: String(THREAD_PAGE_SIZE) });
+    const query = new URLSearchParams({ limit: String(THREAD_PAGE_SIZE), client: threadClient });
     const search = elements.threadSearch.value.trim();
     if (search) query.set("search", search);
     if (append && state.threadsCursor) query.set("cursor", state.threadsCursor);
     const result = await api(`/api/threads?${query}`);
+    if (requestVersion !== state.threadsRequestVersion || threadClient !== state.threadClient) return;
     const incoming = threadData(result);
     const merged = append ? [...state.threads, ...incoming] : incoming;
     state.threads = [...new Map(merged.map((thread) => [thread.id, thread])).values()];
@@ -247,12 +258,36 @@ async function loadThreads({ append = false, preserveSelection = true } = {}) {
       if (fresh) state.selected = { ...state.selected, ...fresh };
     }
   } catch (error) {
+    if (requestVersion !== state.threadsRequestVersion || threadClient !== state.threadClient) return;
     const info = errorInfo(error);
     showBanner(info.message, { retry: info.retryable ? () => loadThreads({ append }) : null });
   } finally {
-    state.threadsLoading = false;
-    renderThreads();
+    if (requestVersion === state.threadsRequestVersion) {
+      state.threadsLoading = false;
+      renderThreads();
+    }
   }
+}
+
+function renderThreadClientSwitch() {
+  const isCodex = state.threadClient === "codex";
+  elements.codexThreadFilter.classList.toggle("active", isCodex);
+  elements.codexThreadFilter.setAttribute("aria-pressed", String(isCodex));
+  elements.openclawThreadFilter.classList.toggle("active", !isCodex);
+  elements.openclawThreadFilter.setAttribute("aria-pressed", String(!isCodex));
+}
+
+function switchThreadClient(client, { reload = true } = {}) {
+  if (!["codex", "openclaw"].includes(client) || state.threadClient === client) return;
+  state.threadClient = client;
+  state.threadsRequestVersion += 1;
+  state.threadsLoading = false;
+  state.threads = [];
+  state.threadsCursor = null;
+  clearSelectedThread();
+  renderThreadClientSwitch();
+  renderThreads();
+  if (reload) void loadThreads({ preserveSelection: false });
 }
 
 function listState(text) {
@@ -395,13 +430,15 @@ function draftKey(threadId) {
 
 function updateComposer() {
   const selected = Boolean(state.selected);
-  const canConnect = state.ready && state.connection !== "offline";
+  const recovering = state.connection === "degraded";
+  const canConnect = state.ready && state.connection !== "offline" && !recovering;
   elements.messageInput.disabled = !selected || !canConnect || state.submitting;
   elements.sendButton.disabled = elements.messageInput.disabled || !elements.messageInput.value.trim();
   elements.sendButton.textContent = state.busy ? t("actions.queue") : t("actions.send");
   elements.stopButton.classList.toggle("hidden", !state.busy || !state.activeTurnId);
   elements.stopButton.disabled = state.submitting;
   if (!selected) elements.composerHint.textContent = t("composer.select");
+  else if (recovering) elements.composerHint.textContent = t("composer.recovering");
   else if (!canConnect) elements.composerHint.textContent = t("composer.disconnected");
   else if (state.busy && !state.activeTurnId) elements.composerHint.textContent = t("composer.otherClientQueue");
   else if (state.busy) elements.composerHint.textContent = t("composer.queueHint");
@@ -412,7 +449,7 @@ function updateComposer() {
 function updateArchiveActions() {
   const threadId = state.selected?.id;
   const queued = threadId ? Number(state.queuedByThread[threadId] || 0) : 0;
-  const disabled = !threadId || state.busy || state.submitting || queued > 0;
+  const disabled = !threadId || state.busy || state.submitting || state.connection === "degraded" || queued > 0;
   elements.drawerArchiveThreadButton.disabled = disabled;
 }
 
@@ -511,8 +548,10 @@ function clearSelectedThread() {
   state.activeTurnId = null;
   state.busy = false;
   state.streaming.clear();
-  elements.chatTitle.textContent = t("threads.select");
-  elements.chatMeta.textContent = t("threads.selectHelp");
+  elements.chatTitle.textContent = t(state.threadClient === "openclaw" ? "threads.selectOpenClaw" : "threads.select");
+  elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
+  elements.messageInput.value = "";
+  resizeComposer();
   renderMessages();
   renderRequests();
   updateTurnState();
@@ -550,7 +589,7 @@ function handleEvent(event) {
   const { method, params = {} } = event;
   if (method === "bridge/snapshot" || method === "bridge/state") {
     syncSnapshot(params);
-    setConnection(params.ready ? "online" : "connecting", Boolean(params.ready));
+    setConnection(params.ready ? (params.appServer?.degraded ? "degraded" : "online") : "connecting", Boolean(params.ready));
     return;
   }
   if (method === "bridge/request") {
@@ -847,6 +886,7 @@ async function createThread(event) {
     const thread = threadObject(result);
     if (!thread.id) throw new Error(t("new.missingId"));
     localStorage.setItem("codexBridge.lastCwd", cwd);
+    if (state.threadClient !== "codex") switchThreadClient("codex", { reload: false });
     state.threads = [thread, ...state.threads.filter((item) => item.id !== thread.id)];
     closeNewThread();
     await selectThread(thread, { isNew: true });
@@ -865,7 +905,11 @@ function statusRows(snapshot) {
   return [
     [t("status.bridge"), snapshot?.ready ? `v${snapshot.version} · ${t("status.ready")}` : `v${snapshot?.version || "?"} · ${t("status.notReady")}`, snapshot?.ready],
     [t("status.uptime"), snapshot ? t("status.seconds", { count: snapshot.uptimeSeconds }) : t("status.unknown"), true],
-    [t("status.appServer"), `${appServer.status || t("status.unknown")}${appServer.pid ? ` · PID ${appServer.pid}` : ""}`, appServer.ready],
+    [
+      t("status.appServer"),
+      `${appServer.degraded ? t("status.recovering") : (appServer.status || t("status.unknown"))}${appServer.pid ? ` · PID ${appServer.pid}` : ""}`,
+      appServer.ready && !appServer.degraded,
+    ],
     [t("status.restarts"), t("status.times", { count: appServer.restartCount || 0 }), (appServer.restartCount || 0) === 0],
     [t("status.eventClients"), String(snapshot?.eventClients ?? 0), true],
     [t("status.activeTasks"), String(Object.keys(snapshot?.activeTurns || {}).length), true],
@@ -893,7 +937,7 @@ async function refreshHealth({ show = false } = {}) {
   try {
     const snapshot = await api("/api/health", { timeoutMs: 8000 });
     syncSnapshot(snapshot);
-    setConnection("online", true);
+    setConnection(snapshot.appServer?.degraded ? "degraded" : "online", true);
     renderConnectionDetails(snapshot);
   } catch (error) {
     setConnection("offline", false);
@@ -905,7 +949,7 @@ async function refreshHealth({ show = false } = {}) {
 function connectEvents() {
   state.eventStream = new EventStreamController({
     onOpen: () => {
-      setConnection("online", true);
+      setConnection(state.snapshot?.appServer?.degraded ? "degraded" : "online", true);
       void syncSelectedThread();
     },
     onEvent: handleEvent,
@@ -948,6 +992,8 @@ elements.drawerNewThreadButton.addEventListener("click", () => {
   closeActionDrawer({ restoreFocus: true });
   openNewThread();
 });
+elements.codexThreadFilter.addEventListener("click", () => switchThreadClient("codex"));
+elements.openclawThreadFilter.addEventListener("click", () => switchThreadClient("openclaw"));
 elements.loadMoreThreads.addEventListener("click", () => loadThreads({ append: true }));
 elements.threadSearch.addEventListener("input", () => {
   clearTimeout(state.searchTimer);
@@ -1022,6 +1068,7 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("bridge:languagechange", () => {
   syncThemeButton();
   setConnection(state.connection, state.ready);
+  renderThreadClientSwitch();
   renderThreads();
   renderMessages();
   renderRequests();
@@ -1029,11 +1076,15 @@ document.addEventListener("bridge:languagechange", () => {
   if (state.selected) {
     elements.chatTitle.textContent = titleOf(state.selected);
     elements.chatMeta.textContent = state.selected.cwd || t("threads.noCwd");
+  } else {
+    elements.chatTitle.textContent = t(state.threadClient === "openclaw" ? "threads.selectOpenClaw" : "threads.select");
+    elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
   }
   if (!elements.connectionModal.classList.contains("hidden")) renderConnectionDetails(state.snapshot);
 });
 
 setConnection(navigator.onLine ? "connecting" : "offline", false);
+renderThreadClientSwitch();
 renderMessages();
 connectEvents();
 setInterval(() => state.eventStream?.checkLiveness(), 15_000);

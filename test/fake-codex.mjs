@@ -12,11 +12,23 @@ reader.on("line", (line) => {
   const message = JSON.parse(line);
   const { id, method, params = {} } = message;
   if (id === undefined) return;
+  if (method === process.env.FAKE_CODEX_HANG_METHOD) return;
+  if (method === process.env.FAKE_CODEX_DELAY_METHOD) {
+    setTimeout(() => send({ id, result: { delayed: true } }), Number(process.env.FAKE_CODEX_DELAY_MS || 40));
+    return;
+  }
 
   if (method === "initialize") {
     send({ id, result: { userAgent: "fake-codex/1.0", platformFamily: "windows", platformOs: "windows" } });
   } else if (method === "thread/list") {
-    send({ id, result: { data: [{ id: "thread-1", name: "Fixture thread", cwd: process.cwd(), updatedAt: 1_800_000_000, status: { type: "idle" } }], nextCursor: null } });
+    if (params.useStateDbOnly !== true) {
+      send({ id, error: { code: -32602, message: "thread/list must use the state DB fast path" } });
+      return;
+    }
+    send({ id, result: { data: [
+      { id: "thread-1", name: "Fixture thread", cwd: process.cwd(), updatedAt: 1_800_000_000, status: { type: "idle" } },
+      { id: "openclaw-1", preview: "Conversation info: ⟦openclaw:ctx⟧", cwd: "C:\\home\\fixture\\.openclaw\\workspace", updatedAt: 1_799_999_999, status: { type: "idle" } },
+    ], nextCursor: null } });
   } else if (method === "thread/read") {
     send({ id, result: { thread: { id: params.threadId, name: "Fixture thread", cwd: process.cwd(), status: { type: "idle" }, turns: [] } } });
   } else if (method === "thread/turns/list") {
@@ -55,8 +67,19 @@ reader.on("line", (line) => {
   } else if (method === "thread/unsubscribe") {
     send({ id, result: { status: "unsubscribed" } });
   } else if (method === "thread/archive") {
-    send({ id, result: {} });
-    send({ method: "thread/archived", params: { threadId: params.threadId } });
+    if (process.env.FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL === "1" && process.env.CODEX_BRIDGE_CHANNEL !== "archive") {
+      send({ id, error: { code: -32600, message: "thread/archive must use the isolated channel" } });
+      return;
+    }
+    const completeArchive = () => {
+      send({ id, result: {} });
+      send({ method: "thread/archived", params: { threadId: params.threadId } });
+    };
+    const delayMs = process.env.CODEX_BRIDGE_CHANNEL === "archive"
+      ? Number(process.env.FAKE_CODEX_ARCHIVE_DELAY_MS || 0)
+      : 0;
+    if (delayMs > 0) setTimeout(completeArchive, delayMs);
+    else completeArchive();
   } else if (method === "turn/start") {
     turnId += 1;
     const turn = { id: `turn-live-${turnId}`, status: "inProgress", items: [] };

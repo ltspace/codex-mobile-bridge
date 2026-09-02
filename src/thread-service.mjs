@@ -8,6 +8,11 @@ const APPROVAL_METHODS = new Set([
   "item/fileChange/requestApproval",
 ]);
 const USER_INPUT_METHOD = "item/tool/requestUserInput";
+const THREAD_CLIENTS = new Set(["codex", "openclaw"]);
+const OPENCLAW_PREVIEW_MARKERS = [
+  /(?:^|\n)Conversation info:\s*⟦openclaw:ctx⟧/i,
+  /(?:^|\n)OpenClaw runtime context for this turn:/i,
+];
 
 function threadIdFrom(params = {}) {
   return params.threadId || params.thread_id || params.thread?.id || params.turn?.threadId || null;
@@ -15,6 +20,25 @@ function threadIdFrom(params = {}) {
 
 function turnIdFrom(params = {}) {
   return params.turnId || params.turn_id || params.turn?.id || null;
+}
+
+export function threadClient(thread = {}) {
+  const preview = [thread.preview, thread.name, thread.title]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  if (OPENCLAW_PREVIEW_MARKERS.some((marker) => marker.test(preview))) return "openclaw";
+
+  const cwd = typeof thread.cwd === "string" ? thread.cwd : "";
+  return /(?:^|[\\/])\.openclaw(?:[\\/]|$)/i.test(cwd) ? "openclaw" : "codex";
+}
+
+function filterThreadPage(result, client) {
+  const collectionKey = ["data", "threads", "items"].find((key) => Array.isArray(result?.[key]));
+  if (!collectionKey) return result;
+  return {
+    ...result,
+    [collectionKey]: result[collectionKey].filter((thread) => threadClient(thread) === client),
+  };
 }
 
 export function rpcFailure(error) {
@@ -39,16 +63,36 @@ export function rpcFailure(error) {
       retryable: true,
     });
   }
+  if (error?.code === "rpc_circuit_open") {
+    const seconds = Math.max(1, Math.ceil(Number(error.retryAfterMs || 1) / 1000));
+    return new BridgeError(`Codex 请求队列正在恢复，请在 ${seconds} 秒后重试`, {
+      status: 503,
+      code: "codex_recovering",
+      retryable: true,
+      details: { seconds },
+    });
+  }
   return error;
 }
 
 export class ThreadService {
-  constructor({ client, stateStore, eventHub, approvalPolicy = "never", sandboxMode = "danger-full-access" }) {
+  constructor({
+    client,
+    stateStore,
+    eventHub,
+    approvalPolicy = "never",
+    sandboxMode = "danger-full-access",
+    archiveClientFactory = null,
+    archiveTimeoutMs = 20_000,
+  }) {
     this.client = client;
     this.stateStore = stateStore;
     this.eventHub = eventHub;
     this.approvalPolicy = approvalPolicy;
     this.sandboxMode = sandboxMode;
+    this.archiveClientFactory = archiveClientFactory;
+    this.archiveTimeoutMs = archiveTimeoutMs;
+    this.archiveOperation = null;
     this.activeTurns = new Map();
     this.releasePromises = new Map();
     this.queueDrains = new Map();
@@ -64,7 +108,7 @@ export class ThreadService {
       if (!snapshot.ready) {
         this.activeTurns.clear();
         this.serverRequests.clear();
-      } else {
+      } else if (!snapshot.degraded) {
         this.#drainAllQueues();
       }
       eventHub.publish("bridge/state", this.snapshot());
@@ -80,23 +124,31 @@ export class ThreadService {
         sandboxMode: this.sandboxMode,
       },
       drafts: this.stateStore.snapshot(),
+      archive: this.archiveOperation
+        ? { busy: true, threadId: this.archiveOperation.threadId, startedAt: this.archiveOperation.startedAt }
+        : { busy: false, threadId: null, startedAt: null },
       appServer: this.client.snapshot(),
     };
   }
 
-  async listThreads({ limit = 50, cursor = null, searchTerm = null } = {}) {
+  async listThreads({ limit = 50, cursor = null, searchTerm = null, client = "codex" } = {}) {
+    if (!THREAD_CLIENTS.has(client)) {
+      throw new BridgeError("会话来源无效", { status: 400, code: "invalid_thread_client" });
+    }
     const cacheKey = !cursor && !searchTerm ? String(limit) : null;
     const cached = cacheKey ? this.threadListCache.get(cacheKey) : null;
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-    if (cacheKey && this.threadListInflight.has(cacheKey)) return this.threadListInflight.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return filterThreadPage(cached.value, client);
+    if (cacheKey && this.threadListInflight.has(cacheKey)) {
+      return filterThreadPage(await this.threadListInflight.get(cacheKey), client);
+    }
 
     const load = this.#listThreads({ limit, cursor, searchTerm });
-    if (!cacheKey) return load;
+    if (!cacheKey) return filterThreadPage(await load, client);
     this.threadListInflight.set(cacheKey, load);
     try {
       const value = await load;
       this.threadListCache.set(cacheKey, { value, expiresAt: Date.now() + 5_000 });
-      return value;
+      return filterThreadPage(value, client);
     } finally {
       this.threadListInflight.delete(cacheKey);
     }
@@ -104,15 +156,17 @@ export class ThreadService {
 
   async #listThreads({ limit, cursor, searchTerm }) {
     try {
-      return await this.client.request("thread/list", {
+      const result = await this.client.request("thread/list", {
         limit,
         sortKey: "updated_at",
         sortDirection: "desc",
         sourceKinds: ["vscode", "appServer", "cli"],
         archived: false,
+        useStateDbOnly: true,
         ...(cursor ? { cursor } : {}),
         ...(searchTerm ? { searchTerm } : {}),
       });
+      return result;
     } catch (error) {
       throw rpcFailure(error);
     }
@@ -185,14 +239,62 @@ export class ThreadService {
         code: "thread_has_queued_messages",
       });
     }
+
+    if (this.archiveOperation) {
+      if (this.archiveOperation.threadId === threadId) return this.archiveOperation.promise;
+      throw new BridgeError("已有会话正在归档，请完成后再试", {
+        status: 409,
+        code: "archive_busy",
+        retryable: true,
+      });
+    }
+
+    const promise = this.#performArchive(threadId);
+    this.archiveOperation = { threadId, startedAt: new Date().toISOString(), promise };
+    this.eventHub.publish("bridge/archiveState", { busy: true, threadId });
     try {
-      await this.#waitForRelease(threadId);
-      const result = await this.client.request("thread/archive", { threadId });
+      return await promise;
+    } finally {
+      if (this.archiveOperation?.promise === promise) {
+        this.archiveOperation = null;
+        this.eventHub.publish("bridge/archiveState", { busy: false, threadId });
+      }
+    }
+  }
+
+  async #performArchive(threadId) {
+    await this.#waitForRelease(threadId);
+    const archiveClient = this.archiveClientFactory ? this.archiveClientFactory() : null;
+    const rpcClient = archiveClient || this.client;
+    const forwardNotification = (message) => this.#notification(message);
+    if (archiveClient) archiveClient.on("notification", forwardNotification);
+    try {
+      if (archiveClient) await archiveClient.start();
+      const result = await rpcClient.request("thread/archive", { threadId }, this.archiveTimeoutMs);
       this.stateStore.removeDraft(threadId);
       this.#invalidateThreadList();
       return result;
     } catch (error) {
+      if (archiveClient && error?.code === "rpc_timeout") {
+        throw new BridgeError("归档未在限定时间内确认；主连接未受影响，请刷新列表确认结果", {
+          status: 504,
+          code: "archive_timeout",
+          retryable: true,
+        });
+      }
+      if (archiveClient && !archiveClient.ready && !error?.code) {
+        throw new BridgeError("独立归档服务启动失败，请稍后重试", {
+          status: 503,
+          code: "archive_unavailable",
+          retryable: true,
+        });
+      }
       throw rpcFailure(error);
+    } finally {
+      if (archiveClient) {
+        archiveClient.off("notification", forwardNotification);
+        await archiveClient.stop().catch(() => {});
+      }
     }
   }
 

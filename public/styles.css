@@ -158,6 +158,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .connection-pill { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--subtle); }
 .connection-pill.online .connection-dot { background: var(--online); box-shadow: 0 0 10px var(--online-glow); }
+.connection-pill.degraded .connection-dot { background: var(--connecting); animation: pulse 1.2s infinite; }
 .connection-pill.offline .connection-dot { background: var(--offline); }
 .connection-pill.connecting .connection-dot { background: var(--connecting); animation: pulse 1.2s infinite; }
 .action-menu-button { display: grid; }
@@ -198,6 +199,28 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
   background: var(--panel);
 }
 .sidebar-tools { padding: 13px 12px 9px; border-bottom: 1px solid var(--line); }
+.thread-client-switch {
+  margin-bottom: 9px;
+  padding: 3px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--bg);
+}
+.thread-client-option {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.thread-client-option:hover { background: var(--hover-bg); color: var(--text); }
+.thread-client-option.active { background: var(--panel-soft); color: var(--accent); box-shadow: 0 1px 5px var(--floating-shadow); }
 .search-box {
   height: 40px;
   display: flex;

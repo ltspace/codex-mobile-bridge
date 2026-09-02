@@ -19,6 +19,8 @@ export const elements = {
   drawerThemeButton: byId("drawerThemeButton"),
   drawerThemeText: byId("drawerThemeText"),
   drawerLanguageButton: byId("drawerLanguageButton"),
+  codexThreadFilter: byId("codexThreadFilter"),
+  openclawThreadFilter: byId("openclawThreadFilter"),
   threadSearch: byId("threadSearch"),
   threadCount: byId("threadCount"),
   threadList: byId("threadList"),

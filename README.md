@@ -44,8 +44,11 @@ English | [简体中文](./README.zh-CN.md)
 
 ## Features
 
-- Search, open, and create Codex conversations.
+- Switch between Codex and OpenClaw conversation lists, with Codex selected by
+  default, then search and open either kind or create a new Codex conversation.
 - Archive the selected idle conversation from the top-bar action menu.
+- Isolate archive work in a short-lived App Server process so slow recursive
+  archiving does not block the main conversation channel.
 - Render responses with Markdown, clickable links, tables, and code blocks.
 - Send messages, queue follow-ups without interrupting active work, stop turns
   explicitly, and handle supported approval and user-input requests.
@@ -53,6 +56,9 @@ English | [简体中文](./README.zh-CN.md)
   Codex client releases the conversation.
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
   synchronization after reconnecting.
+- Read conversation lists through the App Server state database and apply a
+  bounded recovery cooldown after RPC timeouts so repeated phone refreshes do
+  not add more work to a slow request queue.
 - Load the latest 10 turns first and fetch large tool details only when opened.
 - Install as a PWA with safe-area layout and a new-conversation shortcut.
 - Keep the static interface available offline and activate frontend updates on

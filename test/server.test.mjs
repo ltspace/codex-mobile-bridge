@@ -33,6 +33,8 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       BRIDGE_UI_LANGUAGE: "zh-CN",
       CODEX_COMMAND: process.execPath,
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
+      FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
+      FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -54,7 +56,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.6.4");
+  assert.equal(health.version, "0.7.1");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -88,6 +90,13 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
 
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
+  assert.equal(list.data.length, 1);
+  const openclawList = await (await fetch(`${baseUrl}/api/threads?client=openclaw`)).json();
+  assert.equal(openclawList.data[0].id, "openclaw-1");
+  assert.equal(openclawList.data.length, 1);
+  const invalidClientResponse = await fetch(`${baseUrl}/api/threads?client=other`);
+  assert.equal(invalidClientResponse.status, 400);
+  assert.equal((await invalidClientResponse.json()).error.code, "invalid_thread_client");
   const turnsResponse = await fetch(`${baseUrl}/api/threads/thread-1/turns?limit=10`);
   const turns = await turnsResponse.json();
   assert.equal(turns.data[0].items[1].text, "world");
@@ -161,10 +170,24 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(releasedHealth.drafts.queuedMessages, 0);
   assert.equal(releasedHealth.metrics.rpc.byMethod["turn/start"], 2);
   assert.equal(releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"], 2);
-  const archiveResponse = await fetch(`${baseUrl}/api/threads/draft-1/archive`, {
+  let archiveFinished = false;
+  const archiveRequest = fetch(`${baseUrl}/api/threads/draft-1/archive`, {
     method: "POST",
-  });
+  }).finally(() => { archiveFinished = true; });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  const archiveHealth = await (await fetch(`${baseUrl}/api/health`)).json();
+  assert.equal(archiveHealth.archive.busy, true);
+  assert.equal(archiveHealth.appServer.degraded, false);
+  const concurrentArchive = await fetch(`${baseUrl}/api/threads/thread-2/archive`, { method: "POST" });
+  assert.equal(concurrentArchive.status, 409);
+  assert.equal((await concurrentArchive.json()).error.code, "archive_busy");
+  const concurrentRead = await fetch(`${baseUrl}/api/threads?limit=7&search=archive-isolation`);
+  assert.equal(concurrentRead.status, 200);
+  assert.equal(archiveFinished, false, "main App Server read waited for isolated archive completion");
+  const archiveResponse = await archiveRequest;
   assert.equal(archiveResponse.status, 200);
+  const archiveDoneHealth = await (await fetch(`${baseUrl}/api/health`)).json();
+  assert.equal(archiveDoneHealth.archive.busy, false);
   const metrics = await (await fetch(`${baseUrl}/api/metrics`)).json();
   assert.ok(metrics.http.requestsTotal >= 8);
   assert.ok(metrics.http.errorsTotal >= 2);
@@ -172,6 +195,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.6.4"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.7.1"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

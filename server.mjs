@@ -10,7 +10,7 @@ import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 
-const VERSION = "0.6.4";
+const VERSION = "0.7.1";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -37,21 +37,48 @@ const client = new CodexClient({
   cwd: process.env.CODEX_CWD || process.cwd(),
   logger: { error: (message) => logger.warn("app_server_stderr", { message }) },
 });
+function createArchiveClient() {
+  const archiveClient = new CodexClient({
+    command: process.env.CODEX_COMMAND || "codex",
+    args: CODEX_ARGS,
+    cwd: process.env.CODEX_CWD || process.cwd(),
+    env: { ...process.env, CODEX_BRIDGE_CHANNEL: "archive" },
+    initializeTimeoutMs: 5_000,
+    logger: { error: (message) => logger.warn("archive_app_server_stderr", { message }) },
+  });
+  archiveClient.on("rpc", (observation) => {
+    metrics.recordRpc(observation);
+    if (observation.outcome !== "ok") logger.warn("archive_rpc_failed", observation);
+  });
+  archiveClient.on("rpcLate", (observation) => logger.warn("archive_rpc_late_response", observation));
+  archiveClient.on("state", (snapshot) => logger.info("archive_app_server_state", {
+    status: snapshot.status,
+    pid: snapshot.pid,
+    degraded: snapshot.degraded,
+    error: snapshot.error,
+  }));
+  return archiveClient;
+}
 const threads = new ThreadService({
   client,
   stateStore,
   eventHub,
   approvalPolicy: APPROVAL_POLICY,
   sandboxMode: SANDBOX_MODE,
+  archiveClientFactory: createArchiveClient,
 });
 client.on("rpc", (observation) => {
   metrics.recordRpc(observation);
   if (observation.outcome !== "ok") logger.warn("rpc_failed", observation);
 });
+client.on("rpcLate", (observation) => logger.warn("rpc_late_response", observation));
 client.on("state", (snapshot) => logger.info("app_server_state", {
   status: snapshot.status,
   pid: snapshot.pid,
   restartCount: snapshot.restartCount,
+  degraded: snapshot.degraded,
+  degradedUntil: snapshot.degradedUntil,
+  timeoutStreak: snapshot.timeoutStreak,
   error: snapshot.error,
 }));
 
@@ -159,9 +186,10 @@ async function handleApi(request, response, url, id) {
   if (url.pathname === "/api/threads" && request.method === "GET") {
     const cursor = url.searchParams.get("cursor");
     const searchTerm = url.searchParams.get("search")?.trim() || null;
+    const threadClient = url.searchParams.get("client") || "codex";
     if (cursor && cursor.length > 4096) throw new BridgeError("分页游标无效", { status: 400, code: "invalid_cursor" });
     if (searchTerm && searchTerm.length > 200) throw new BridgeError("搜索内容过长", { status: 400, code: "invalid_search" });
-    json(response, 200, await threads.listThreads({ limit: queryLimit(url, 50, 100), cursor, searchTerm }), id);
+    json(response, 200, await threads.listThreads({ limit: queryLimit(url, 50, 100), cursor, searchTerm, client: threadClient }), id);
     return true;
   }
 

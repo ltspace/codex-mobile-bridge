@@ -24,13 +24,23 @@ export function resolveSpawnSpec(command, args, platform = process.platform) {
 }
 
 export class CodexClient extends EventEmitter {
-  constructor({ command, args = ["app-server", "--stdio"], cwd, env = process.env, logger = console } = {}) {
+  constructor({
+    command,
+    args = ["app-server", "--stdio"],
+    cwd,
+    env = process.env,
+    logger = console,
+    initializeTimeoutMs = 30_000,
+    rpcCooldownMs = 15_000,
+    rpcCooldownMaxMs = 60_000,
+  } = {}) {
     super();
     this.command = command || "codex";
     this.args = args;
     this.cwd = cwd || process.cwd();
     this.env = env;
     this.logger = logger;
+    this.initializeTimeoutMs = initializeTimeoutMs;
     this.rpcId = 0;
     this.pending = new Map();
     this.child = null;
@@ -43,6 +53,14 @@ export class CodexClient extends EventEmitter {
     this.error = null;
     this.lastReadyAt = null;
     this.lastExit = null;
+    this.rpcCooldownMs = rpcCooldownMs;
+    this.rpcCooldownMaxMs = Math.max(rpcCooldownMs, rpcCooldownMaxMs);
+    this.rpcCooldownUntil = 0;
+    this.rpcCooldownTimer = null;
+    this.timeoutStreak = 0;
+    this.lastTimeoutAt = null;
+    this.lastTimeoutMethod = null;
+    this.timedOut = new Map();
   }
 
   get ready() {
@@ -50,6 +68,7 @@ export class CodexClient extends EventEmitter {
   }
 
   snapshot() {
+    const degraded = this.rpcCooldownUntil > Date.now();
     return {
       status: this.status,
       ready: this.ready,
@@ -60,6 +79,12 @@ export class CodexClient extends EventEmitter {
       lastExit: this.lastExit,
       error: this.error,
       pendingRpc: this.pending.size,
+      degraded,
+      degradedUntil: degraded ? new Date(this.rpcCooldownUntil).toISOString() : null,
+      timeoutStreak: this.timeoutStreak,
+      lastTimeoutAt: this.lastTimeoutAt,
+      lastTimeoutMethod: this.lastTimeoutMethod,
+      lateRpcTracked: this.timedOut.size,
     };
   }
 
@@ -73,6 +98,7 @@ export class CodexClient extends EventEmitter {
     this.desired = false;
     clearTimeout(this.restartTimer);
     this.restartTimer = null;
+    this.#resetRpcHealth();
     const child = this.child;
     if (!child) {
       this.#setStatus("stopped", null);
@@ -91,6 +117,11 @@ export class CodexClient extends EventEmitter {
 
   request(method, params = {}, timeoutMs = 30_000) {
     if (!this.ready) return Promise.reject(new Error(this.error || "Codex app-server is not ready"));
+    const cooldownError = this.#cooldownError(method);
+    if (cooldownError) {
+      this.emit("rpc", { method, outcome: "circuit_open", durationMs: 0 });
+      return Promise.reject(cooldownError);
+    }
     return this.#requestRaw(method, params, timeoutMs);
   }
 
@@ -150,9 +181,9 @@ export class CodexClient extends EventEmitter {
 
     try {
       await this.#requestRaw("initialize", {
-        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.6.4" },
+        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.7.1" },
         capabilities: { experimentalApi: true },
-      }, 30_000);
+      }, this.initializeTimeoutMs);
       this.#write({ method: "initialized", params: {} });
       this.restartAttempts = 0;
       this.lastReadyAt = new Date().toISOString();
@@ -167,6 +198,7 @@ export class CodexClient extends EventEmitter {
   #requestRaw(method, params, timeoutMs) {
     const id = ++this.rpcId;
     const startedAt = performance.now();
+    const startedAtEpoch = Date.now();
     return new Promise((resolve, reject) => {
       let observed = false;
       const observe = (outcome) => {
@@ -176,16 +208,19 @@ export class CodexClient extends EventEmitter {
       };
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        this.#trackTimedOut(id, method, startedAtEpoch);
         const error = new Error(`${method} timed out after ${timeoutMs}ms`);
         error.code = "rpc_timeout";
+        error.method = method;
         error.retryable = true;
+        this.#enterRpcCooldown(method);
         observe("timeout");
         reject(error);
       }, timeoutMs);
       this.pending.set(id, {
         method,
-        resolve: (value) => { clearTimeout(timer); observe("ok"); resolve(value); },
-        reject: (error) => { clearTimeout(timer); observe("error"); reject(error); },
+        resolve: (value) => { clearTimeout(timer); this.#markRpcResponsive(); observe("ok"); resolve(value); },
+        reject: (error) => { clearTimeout(timer); this.#markRpcResponsive(); observe("error"); reject(error); },
       });
       try {
         this.#write({ method, id, params });
@@ -213,7 +248,20 @@ export class CodexClient extends EventEmitter {
     }
     if (message.id !== undefined && !message.method) {
       const waiter = this.pending.get(message.id);
-      if (!waiter) return;
+      if (!waiter) {
+        const timedOut = this.timedOut.get(message.id);
+        if (timedOut) {
+          this.timedOut.delete(message.id);
+          this.#markRpcResponsive();
+          this.emit("rpcLate", {
+            requestId: message.id,
+            method: timedOut.method,
+            outcome: message.error ? "late_error" : "late_ok",
+            durationMs: Date.now() - timedOut.startedAtEpoch,
+          });
+        }
+        return;
+      }
       this.pending.delete(message.id);
       if (message.error) waiter.reject(new RpcError(waiter.method, message.error));
       else waiter.resolve(message.result);
@@ -232,6 +280,7 @@ export class CodexClient extends EventEmitter {
     this.reader = null;
     this.child = null;
     this.lastExit = { at: new Date().toISOString(), code, signal };
+    this.#resetRpcHealth();
     const message = `Codex app-server exited (${code ?? signal ?? "unknown"})`;
     for (const waiter of this.pending.values()) waiter.reject(new Error(message));
     this.pending.clear();
@@ -264,6 +313,66 @@ export class CodexClient extends EventEmitter {
       }, Math.min(30_000, this.restartAttempts * 2_000));
       this.restartTimer.unref();
     }
+  }
+
+  #cooldownError(method) {
+    if (this.rpcCooldownUntil <= Date.now()) {
+      if (this.rpcCooldownUntil) this.#finishRpcCooldown();
+      return null;
+    }
+    const retryAfterMs = Math.max(1, this.rpcCooldownUntil - Date.now());
+    const error = new Error(`${method} paused while the Codex app-server RPC queue recovers`);
+    error.code = "rpc_circuit_open";
+    error.method = method;
+    error.retryable = true;
+    error.retryAfterMs = retryAfterMs;
+    return error;
+  }
+
+  #trackTimedOut(id, method, startedAtEpoch) {
+    this.timedOut.set(id, { method, startedAtEpoch });
+    while (this.timedOut.size > 64) this.timedOut.delete(this.timedOut.keys().next().value);
+  }
+
+  #enterRpcCooldown(method) {
+    this.timeoutStreak += 1;
+    this.lastTimeoutAt = new Date().toISOString();
+    this.lastTimeoutMethod = method;
+    const delayMs = Math.min(
+      this.rpcCooldownMaxMs,
+      this.rpcCooldownMs * (2 ** Math.min(this.timeoutStreak - 1, 4)),
+    );
+    this.rpcCooldownUntil = Math.max(this.rpcCooldownUntil, Date.now() + delayMs);
+    clearTimeout(this.rpcCooldownTimer);
+    this.rpcCooldownTimer = setTimeout(() => this.#finishRpcCooldown(), this.rpcCooldownUntil - Date.now());
+    this.rpcCooldownTimer.unref();
+    this.emit("state", this.snapshot());
+  }
+
+  #finishRpcCooldown() {
+    clearTimeout(this.rpcCooldownTimer);
+    this.rpcCooldownTimer = null;
+    this.rpcCooldownUntil = 0;
+    this.emit("state", this.snapshot());
+  }
+
+  #markRpcResponsive() {
+    if (!this.rpcCooldownUntil && !this.timeoutStreak) return;
+    clearTimeout(this.rpcCooldownTimer);
+    this.rpcCooldownTimer = null;
+    this.rpcCooldownUntil = 0;
+    this.timeoutStreak = 0;
+    this.emit("state", this.snapshot());
+  }
+
+  #resetRpcHealth() {
+    clearTimeout(this.rpcCooldownTimer);
+    this.rpcCooldownTimer = null;
+    this.rpcCooldownUntil = 0;
+    this.timeoutStreak = 0;
+    this.lastTimeoutAt = null;
+    this.lastTimeoutMethod = null;
+    this.timedOut.clear();
   }
 
   #setStatus(status, error) {

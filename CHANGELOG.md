@@ -2,6 +2,30 @@
 
 All notable changes to Codex Mobile Bridge are documented here.
 
+## 0.7.1 - 2026-09-02
+
+### Fixed
+
+- Read conversation lists from the App Server state database without scanning
+  and repairing the full JSONL session archive on each cache miss.
+- Enter a bounded 15-to-60-second recovery cooldown after a real App Server RPC
+  timeout, reject new work immediately during that window, and recover early
+  when a late response proves the App Server is responsive again.
+- Distinguish an App Server request-queue recovery from a phone network
+  disconnection in the status pill, composer hint, health view, and API errors.
+- Run `thread/archive` through a short-lived isolated App Server so recursive
+  archive work cannot block conversation reads and sends on the main channel.
+  Concurrent archive requests fail fast instead of building another queue.
+
+## 0.7.0 - 2026-09-02
+
+### Added
+
+- Added a Codex/OpenClaw conversation switch that defaults to Codex on every
+  page load.
+- Classify and filter OpenClaw-created Codex sessions on the server before the
+  conversation list reaches the browser.
+
 ## 0.6.4 - 2026-09-02
 
 ### Added

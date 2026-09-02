@@ -27,8 +27,11 @@ Server remain local to the Windows host.
 - `src/codex-client.mjs` owns the App Server child process, JSON-RPC request
   correlation, initialization handshake, timeouts, and exponential restart.
 - `src/thread-service.mjs` maps mobile operations to thread/turn protocol calls,
-  tracks active turns, coalesces short-lived conversation-list reads, compacts
-  history pages, and loads individual tool details on demand.
+  classifies Codex and OpenClaw-created sessions, tracks active turns, coalesces
+  short-lived conversation-list reads, compacts history pages, and loads
+  individual tool details on demand. Archive requests are serialized through a
+  short-lived isolated App Server so recursive archive traversal cannot occupy
+  the main interactive RPC channel.
 - `src/event-hub.mjs` fans App Server notifications out over SSE, emits visible
   heartbeat events, and retains a bounded replay window with per-process
   instance identity for reconnecting phones.
@@ -68,12 +71,21 @@ stopped → starting → ready
               │        │ child exits
               └────────▼
                    restarting ──backoff──► starting
+
+ready ──RPC timeout──► degraded cooldown ──timer or late response──► ready
 ```
 
 HTTP stays alive while an App Server child restarts. `/api/health` returns 503
 until the required `initialize` then `initialized` handshake succeeds. The web
 UI keeps history visible, marks the connection degraded, and reconnects its SSE
 stream automatically.
+
+The first real RPC timeout opens a 15-second cooldown. Consecutive timeouts can
+extend it to at most 60 seconds. Calls arriving during the cooldown fail fast
+with a retry interval instead of joining the App Server's existing queue; any
+late or ordinary response closes the circuit early. Conversation-list reads use
+the App Server state database only, while their short-lived raw page cache is
+shared before Codex/OpenClaw classification.
 
 The Windows recovery loop does not depend on one permanent console process.
 Every scheduled watchdog run checks:
@@ -97,7 +109,7 @@ Existing conversation: thread/resume → turn/start → streamed notifications
 New conversation:      thread/start  → persisted pending-first-turn marker
                                      → turn/start → marker removed
 Active conversation:                  turn/steer or turn/interrupt
-History:               thread/list   → compact thread/turns/list with opaque cursor
+History:               thread/list (state DB only) → compact thread/turns/list with opaque cursor
 Catch-up:                              latest-page delta from known turn ID
 Tool detail:                           thread/items/list only when opened
 ```

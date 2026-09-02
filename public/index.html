@@ -77,6 +77,10 @@
     <div class="workspace">
       <aside id="sidebar" class="sidebar" aria-label="Conversation list" data-i18n-aria-label="threads.list">
         <div class="sidebar-tools">
+          <div class="thread-client-switch" role="group" aria-label="Conversation source" data-i18n-aria-label="threads.filter">
+            <button id="codexThreadFilter" class="thread-client-option active" type="button" aria-pressed="true">Codex</button>
+            <button id="openclawThreadFilter" class="thread-client-option" type="button" aria-pressed="false">OpenClaw</button>
+          </div>
           <label class="search-box">
             <span>⌕</span>
             <input id="threadSearch" type="search" placeholder="Search conversations" data-i18n-placeholder="threads.search" autocomplete="off">

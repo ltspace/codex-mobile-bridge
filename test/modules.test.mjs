@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { EventHub } from "../src/event-hub.mjs";
-import { resolveSpawnSpec } from "../src/codex-client.mjs";
+import { CodexClient, resolveSpawnSpec } from "../src/codex-client.mjs";
 import { entriesFromTurns } from "../public/modules/formatters.js";
 import { BridgeMetrics } from "../src/metrics.mjs";
-import { rpcFailure } from "../src/thread-service.mjs";
+import { rpcFailure, threadClient } from "../src/thread-service.mjs";
 import { BridgeStateStore } from "../src/state-store.mjs";
 import { hasTranslation, setLanguage, t } from "../public/modules/i18n.js";
 import { markdownToHtml } from "../public/modules/markdown.js";
@@ -58,6 +60,69 @@ test("active thread writer conflicts become an actionable client error", () => {
   assert.equal(error.status, 409);
   assert.equal(error.code, "thread_in_use");
   assert.equal(error.retryable, false);
+});
+
+test("RPC timeout opens a bounded recovery cooldown", async (context) => {
+  const client = new CodexClient({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("./fake-codex.mjs", import.meta.url))],
+    env: { ...process.env, FAKE_CODEX_HANG_METHOD: "fixture/hang" },
+    rpcCooldownMs: 30,
+    rpcCooldownMaxMs: 60,
+    logger: { error() {} },
+  });
+  context.after(() => client.stop());
+  await client.start();
+
+  await assert.rejects(client.request("fixture/hang", {}, 10), (error) => error.code === "rpc_timeout");
+  assert.equal(client.snapshot().degraded, true);
+  await assert.rejects(
+    client.request("thread/read", { threadId: "thread-1" }),
+    (error) => error.code === "rpc_circuit_open" && error.retryAfterMs > 0,
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(client.snapshot().degraded, false);
+  const result = await client.request("thread/read", { threadId: "thread-1" });
+  assert.equal(result.thread.id, "thread-1");
+  assert.equal(client.snapshot().timeoutStreak, 0);
+});
+
+test("recovery cooldown errors tell the phone when to retry", () => {
+  const error = rpcFailure({ code: "rpc_circuit_open", retryAfterMs: 1_200 });
+  assert.equal(error.status, 503);
+  assert.equal(error.code, "codex_recovering");
+  assert.equal(error.retryable, true);
+  assert.equal(error.details.seconds, 2);
+});
+
+test("a late RPC response closes the recovery cooldown early", async (context) => {
+  const client = new CodexClient({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("./fake-codex.mjs", import.meta.url))],
+    env: { ...process.env, FAKE_CODEX_DELAY_METHOD: "fixture/delay", FAKE_CODEX_DELAY_MS: "40" },
+    rpcCooldownMs: 500,
+    rpcCooldownMaxMs: 500,
+    logger: { error() {} },
+  });
+  context.after(() => client.stop());
+  await client.start();
+
+  const lateResponse = once(client, "rpcLate");
+  await assert.rejects(client.request("fixture/delay", {}, 10), (error) => error.code === "rpc_timeout");
+  assert.equal(client.snapshot().degraded, true);
+  const [observation] = await lateResponse;
+  assert.equal(observation.method, "fixture/delay");
+  assert.equal(observation.outcome, "late_ok");
+  assert.equal(client.snapshot().degraded, false);
+  assert.equal(client.snapshot().timeoutStreak, 0);
+});
+
+test("thread client classification separates OpenClaw sessions from ordinary Codex threads", () => {
+  assert.equal(threadClient({ cwd: "C:\\work\\project", preview: "help me configure openclaw" }), "codex");
+  assert.equal(threadClient({ cwd: "C:\\work\\project", preview: "Conversation info: ⟦openclaw:ctx⟧\n{}" }), "openclaw");
+  assert.equal(threadClient({ cwd: "/work/project", preview: "OpenClaw runtime context for this turn:\ncontext" }), "openclaw");
+  assert.equal(threadClient({ cwd: "C:\\home\\lut\\.openclaw\\workspace", preview: "hello" }), "openclaw");
 });
 
 test("queued follow-ups survive a bridge restart until delivered", async (context) => {
