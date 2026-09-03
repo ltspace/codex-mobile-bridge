@@ -4,6 +4,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.8.1 - 2026-09-03
+
 ### Added
 
 - Add a pinned, least-privilege Windows CI workflow, automated GitHub Actions
