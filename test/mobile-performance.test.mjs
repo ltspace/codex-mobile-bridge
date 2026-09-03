@@ -133,3 +133,19 @@ test("queued messages are rehydrated and individually cancellable on mobile", as
   assert.match(messages, /state\.historyItems, \.\.\.state\.queuedMessages/);
   assert.match(messages, /onCancelQueued\?\.\(entry\)/);
 });
+
+test("external writer state exposes an explicit confirmed takeover action", async () => {
+  const root = new URL("..", import.meta.url);
+  const [page, app, styles] = await Promise.all([
+    readFile(new URL("public/index.html", root), "utf8"),
+    readFile(new URL("public/app.js", root), "utf8"),
+    readFile(new URL("public/styles.css", root), "utf8"),
+  ]);
+
+  assert.match(page, /id="takeoverBar"[^>]+role="status"/);
+  assert.match(page, /id="takeoverButton"/);
+  assert.match(app, /state\.externalWriter/);
+  assert.match(app, /window\.confirm\(t\("takeover\.confirm"/);
+  assert.match(app, /\/takeover`/);
+  assert.match(styles, /\.takeover-button \{[^}]*min-height: 44px/);
+});

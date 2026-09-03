@@ -384,6 +384,11 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .request-question input[type="text"], .request-question input[type="password"] { width: 100%; padding: 9px 10px; border: 1px solid var(--request-border); border-radius: 9px; background: var(--request-input-bg); }
 
 .composer-wrap { border-top: 1px solid var(--line); background: var(--composer-bg); padding-bottom: env(safe-area-inset-bottom); }
+.takeover-bar { max-width: 880px; margin: 8px auto 0; padding: 9px 12px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--request-border); border-radius: 12px; background: var(--warning-soft); }
+.takeover-bar > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.takeover-bar strong { color: var(--text); font-size: 12px; }
+.takeover-bar span { color: var(--request-text); font-size: 11px; }
+.takeover-button { min-height: 44px; flex: 0 0 auto; border-color: var(--stop-border); background: var(--danger-soft); color: var(--danger); }
 .composer-hint { max-width: 880px; margin: 6px auto -2px; padding: 0 14px; color: var(--subtle); font-size: 10px; text-align: right; }
 .composer { max-width: 880px; margin: 0 auto; padding: 8px 12px 11px; display: flex; align-items: flex-end; gap: 8px; }
 .composer textarea { min-width: 0; min-height: 44px; max-height: 180px; flex: 1; resize: none; overflow-y: auto; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--panel); line-height: 1.45; }
@@ -446,6 +451,7 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
   .message-body { padding-inline: 10px; }
   .banner { margin-inline: 10px; }
   .requests { padding-inline: 9px; }
+  .takeover-bar { margin-inline: 10px; }
   .composer-hint { display: none; }
   .composer { width: 100%; min-width: 0; padding: 9px 9px 10px; gap: 6px; }
   .composer textarea { width: 0; flex: 1 1 0; }

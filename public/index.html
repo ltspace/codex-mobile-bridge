@@ -116,6 +116,10 @@
         <section id="requests" class="requests" aria-live="assertive"></section>
 
         <footer class="composer-wrap">
+          <div id="takeoverBar" class="takeover-bar hidden" role="status">
+            <div><strong data-i18n="takeover.title">Conversation held on desktop</strong><span data-i18n="takeover.description">A queued message is waiting for the desktop Codex writer.</span></div>
+            <button id="takeoverButton" class="takeover-button" type="button" data-i18n="actions.takeover">Take over</button>
+          </div>
           <div id="composerHint" class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
           <form id="composer" class="composer">
             <textarea id="messageInput" rows="1" maxlength="20000" placeholder="Send a message to Codex…" data-i18n-placeholder="composer.placeholder" disabled></textarea>

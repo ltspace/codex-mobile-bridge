@@ -54,6 +54,9 @@ English | [简体中文](./README.zh-CN.md)
   explicitly, and handle supported approval and user-input requests.
 - Persist mobile follow-ups locally and retry them automatically after another
   Codex client releases the conversation.
+- Explicitly take over a blocked conversation after confirmation. On Windows,
+  the bridge resolves the exact lock owner and only stops a verified VS Code
+  Codex App Server; Bridge-owned, OpenClaw, and unknown processes are refused.
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
   synchronization after reconnecting.
 - Read conversation lists through the App Server state database and apply a

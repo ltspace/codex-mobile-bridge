@@ -420,6 +420,19 @@ export class ThreadService {
     return { ok: true, queueId, remaining };
   }
 
+  retryQueuedMessages(threadId) {
+    const queued = this.stateStore.queuedMessageCount(threadId);
+    if (queued === 0) return { queued: 0 };
+    const timer = this.queueRetryTimers.get(threadId);
+    if (timer) clearTimeout(timer);
+    this.queueRetryTimers.delete(threadId);
+    this.queueRetryCounts.delete(threadId);
+    const currentDrain = this.queueDrains.get(threadId);
+    if (currentDrain) currentDrain.finally(() => this.#drainQueue(threadId));
+    else this.#drainQueue(threadId);
+    return { queued };
+  }
+
   async interrupt(threadId, turnId = null) {
     const activeTurnId = turnId || this.activeTurns.get(threadId);
     if (!activeTurnId) {

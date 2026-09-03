@@ -31,6 +31,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       BRIDGE_PORT: String(port),
       BRIDGE_STATE_FILE: join(temporary, "bridge-state.json"),
       BRIDGE_UI_LANGUAGE: "zh-CN",
+      CODEX_HOME: join(temporary, "codex-home"),
       CODEX_COMMAND: process.execPath,
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
@@ -57,7 +58,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.7.2");
+  assert.equal(health.version, "0.8.0");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -178,6 +179,11 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const conflictQueue = await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json();
   assert.equal(conflictQueue.blockedByExternalWriter, true);
   assert.equal(conflictQueue.data[0].text, "wait for desktop");
+  const takeoverPreflightResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/takeover`);
+  assert.equal(takeoverPreflightResponse.status, 200);
+  const takeoverPreflight = await takeoverPreflightResponse.json();
+  assert.equal(takeoverPreflight.available, false);
+  assert.ok(["owner_missing", "unsupported_platform"].includes(takeoverPreflight.reason));
   const cancelConflict = await fetch(`${baseUrl}/api/threads/thread-conflict/queue/${conflictQueued.queueId}`, { method: "DELETE" });
   assert.equal(cancelConflict.status, 200);
   assert.equal((await cancelConflict.json()).remaining, 0);
@@ -219,6 +225,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.7.2"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.0"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

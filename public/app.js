@@ -481,6 +481,10 @@ function updateComposer() {
   elements.sendButton.textContent = willQueue ? t("actions.queue") : t("actions.send");
   elements.stopButton.classList.toggle("hidden", !state.busy || !state.activeTurnId);
   elements.stopButton.disabled = state.submitting;
+  const canTakeOver = selected && state.externalWriter;
+  elements.takeoverBar.classList.toggle("hidden", !canTakeOver);
+  elements.takeoverButton.disabled = state.takingOver || state.connection === "offline";
+  elements.takeoverButton.textContent = t(state.takingOver ? "actions.inspecting" : "actions.takeover");
   if (!selected) elements.composerHint.textContent = t("composer.select");
   else if (recovering) elements.composerHint.textContent = t("composer.recovering");
   else if (!canConnect) elements.composerHint.textContent = t("composer.disconnected");
@@ -588,6 +592,42 @@ async function cancelQueuedMessage(entry) {
   } finally {
     updateTurnState();
     renderMessages();
+  }
+}
+
+async function takeoverConversation() {
+  const selected = state.selected;
+  if (!selected || !state.externalWriter || state.takingOver) return;
+  const threadId = selected.id;
+  state.takingOver = true;
+  updateComposer();
+  try {
+    const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { timeoutMs: 12_000 });
+    if (!preflight.available && preflight.reason !== "owner_missing") {
+      showBanner(t(`takeover.${preflight.reason}`));
+      return;
+    }
+    if (preflight.available && !window.confirm(t("takeover.confirm", {
+      title: titleOf(selected),
+      pid: preflight.owner?.pid || t("status.unknown"),
+    }))) return;
+
+    await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, {
+      method: "POST",
+      body: JSON.stringify({ token: preflight.token || null, owner: preflight.owner || null }),
+      timeoutMs: 15_000,
+    });
+    state.externalWriter = false;
+    hideBanner();
+    toast(preflight.reason === "owner_missing" ? t("takeover.owner_missing") : t("toast.takeoverComplete"));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    await syncSelectedThread();
+  } catch (error) {
+    const info = errorInfo(error);
+    showBanner(info.message, { retry: info.retryable ? takeoverConversation : null });
+  } finally {
+    state.takingOver = false;
+    updateComposer();
   }
 }
 
@@ -710,6 +750,11 @@ function handleEvent(event) {
     state.externalWriter = true;
     const item = state.queuedMessages.find((queued) => queued.queueId === params.queueId);
     if (item) item.reason = "thread_in_use";
+    updateTurnState();
+    return;
+  }
+  if (method === "bridge/threadTakeover" && threadId === state.selected?.id) {
+    state.externalWriter = false;
     updateTurnState();
     return;
   }
@@ -1113,6 +1158,7 @@ elements.messageInput.addEventListener("keydown", (event) => {
 });
 elements.composer.addEventListener("submit", sendMessage);
 elements.stopButton.addEventListener("click", stopTurn);
+elements.takeoverButton.addEventListener("click", takeoverConversation);
 elements.newThreadButton.addEventListener("click", openNewThread);
 elements.newThreadForm.addEventListener("submit", createThread);
 elements.workspaceToggle.addEventListener("click", toggleWorkspaceOptions);

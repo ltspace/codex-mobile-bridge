@@ -22,6 +22,7 @@ export const state = {
   activeTurnId: null,
   busy: false,
   submitting: false,
+  takingOver: false,
   requests: new Map(),
   streaming: new Map(),
   retryAction: null,

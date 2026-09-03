@@ -124,6 +124,11 @@ bounded to 100 entries with a seven-day expiry.
 - Errors use `{ "error": { "code", "message", "retryable", "details"? } }`.
 - State-changing endpoints require `application/json` and reject browser
   requests marked `Sec-Fetch-Site: cross-site`.
+- Conversation takeover is a two-step operation. The read-only preflight binds
+  a process-bound server token to the thread ID, writer PID, and process start
+  time. The mutation revalidates those values through Windows Restart Manager
+  and only terminates a VS Code extension-owned `codex.exe app-server`; it
+  refuses Bridge descendants and every unrecognized owner.
 - SSE messages include monotonically increasing IDs, process instance identity,
   visible heartbeats, timestamps, method names, and params. Reconnecting clients
   replay the bounded recent window or perform an incremental history catch-up

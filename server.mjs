@@ -9,8 +9,9 @@ import { createLogger } from "./src/logger.mjs";
 import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
+import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 
-const VERSION = "0.7.2";
+const VERSION = "0.8.0";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -66,6 +67,9 @@ const threads = new ThreadService({
   approvalPolicy: APPROVAL_POLICY,
   sandboxMode: SANDBOX_MODE,
   archiveClientFactory: createArchiveClient,
+});
+const takeover = new ThreadTakeoverService({
+  protectedPids: () => [process.pid, client.snapshot().pid].filter(Boolean),
 });
 client.on("rpc", (observation) => {
   metrics.recordRpc(observation);
@@ -134,6 +138,7 @@ function routeName(method, pathname) {
   if (/^\/api\/threads\/[^/]+\/sync$/.test(pathname)) return "turn_sync";
   if (/^\/api\/threads\/[^/]+\/queue\/[^/]+$/.test(pathname)) return "queue_cancel";
   if (/^\/api\/threads\/[^/]+\/queue$/.test(pathname)) return "queue_list";
+  if (/^\/api\/threads\/[^/]+\/takeover$/.test(pathname)) return method === "GET" ? "takeover_inspect" : "takeover_execute";
   if (/^\/api\/threads\/[^/]+\/turns\/[^/]+\/items\/[^/]+$/.test(pathname)) return "item_detail";
   if (/^\/api\/threads\/[^/]+\/send$/.test(pathname)) return "turn_send";
   if (/^\/api\/threads\/[^/]+\/interrupt$/.test(pathname)) return "turn_interrupt";
@@ -186,6 +191,42 @@ async function handleApi(request, response, url, id) {
   const queueMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/queue$/);
   if (queueMatch && request.method === "GET") {
     json(response, 200, threads.queuedMessages(pathId(queueMatch)), id);
+    return true;
+  }
+
+  const takeoverMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/takeover$/);
+  if (takeoverMatch && ["GET", "POST"].includes(request.method)) {
+    const threadId = pathId(takeoverMatch);
+    const queue = threads.queuedMessages(threadId);
+    if (!queue.blockedByExternalWriter) {
+      throw new BridgeError("此会话当前没有被外部客户端阻塞", {
+        status: 409,
+        code: "takeover_not_needed",
+      });
+    }
+    if (request.method === "GET") {
+      json(response, 200, await takeover.inspect(threadId), id);
+      return true;
+    }
+    const body = await readJson(request, MAX_BODY_BYTES);
+    const result = await takeover.takeover(threadId, {
+      token: body.token,
+      pid: body.owner?.pid,
+      startedAt: body.owner?.startedAt,
+    });
+    threads.retryQueuedMessages(threadId);
+    logger.info("thread_takeover", {
+      requestId: id,
+      threadId,
+      terminated: result.terminated,
+      ownerPid: result.owner?.pid || null,
+    });
+    eventHub.publish("bridge/threadTakeover", {
+      threadId,
+      terminated: result.terminated,
+      ownerPid: result.owner?.pid || null,
+    });
+    json(response, 200, result, id);
     return true;
   }
 

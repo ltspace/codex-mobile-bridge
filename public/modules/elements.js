@@ -35,6 +35,8 @@ export const elements = {
   messages: byId("messages"),
   scrollBottom: byId("scrollBottom"),
   requests: byId("requests"),
+  takeoverBar: byId("takeoverBar"),
+  takeoverButton: byId("takeoverButton"),
   composerHint: byId("composerHint"),
   composer: byId("composer"),
   messageInput: byId("messageInput"),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { entriesFromTurns } from "../public/modules/formatters.js";
 import { BridgeMetrics } from "../src/metrics.mjs";
 import { rpcFailure, threadClient } from "../src/thread-service.mjs";
 import { BridgeStateStore } from "../src/state-store.mjs";
+import { isEligibleVsCodeOwner, ThreadTakeoverService } from "../src/thread-takeover.mjs";
 import { hasTranslation, setLanguage, t } from "../public/modules/i18n.js";
 import { markdownToHtml } from "../public/modules/markdown.js";
 
@@ -60,6 +61,88 @@ test("active thread writer conflicts become an actionable client error", () => {
   assert.equal(error.status, 409);
   assert.equal(error.code, "thread_in_use");
   assert.equal(error.retryable, false);
+});
+
+test("takeover stops only the exact verified VS Code writer", async (context) => {
+  const temporary = await mkdtemp(join(tmpdir(), "codex-bridge-takeover-test-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const lockDirectory = join(temporary, "thread-writer-locks");
+  await mkdir(lockDirectory);
+  await writeFile(join(lockDirectory, "thread-1.lock"), "");
+  const owner = {
+    pid: 43210,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    executablePath: "C:\\Users\\test\\.vscode\\extensions\\openai.chatgpt-1.2.3-win32-x64\\bin\\windows-x86_64\\codex.exe",
+    commandLine: "codex.exe app-server --analytics-default-enabled",
+    parentPid: 1234,
+    ancestorPids: [1234],
+  };
+  let alive = true;
+  const terminated = [];
+  const service = new ThreadTakeoverService({
+    platform: "win32",
+    codexHome: temporary,
+    protectedPids: () => [9999],
+    probeOwners: async () => alive ? [owner] : [],
+    terminate: async (target) => { terminated.push(target.pid); alive = false; },
+    secret: Buffer.alloc(32, 7),
+  });
+
+  assert.equal(isEligibleVsCodeOwner(owner), true);
+  const preflight = await service.inspect("thread-1");
+  assert.equal(preflight.available, true);
+  assert.deepEqual(preflight.owner, {
+    pid: 43210,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    client: "vscode",
+    application: "Codex App Server",
+  });
+  await assert.rejects(
+    service.takeover("thread-1", {
+      token: preflight.token,
+      pid: preflight.owner.pid,
+      startedAt: "2026-09-03T00:00:01.000Z",
+    }),
+    (error) => error.code === "takeover_owner_changed",
+  );
+  assert.deepEqual(terminated, []);
+  const result = await service.takeover("thread-1", {
+    token: preflight.token,
+    pid: preflight.owner.pid,
+    startedAt: preflight.owner.startedAt,
+  });
+  assert.equal(result.terminated, true);
+  assert.deepEqual(terminated, [43210]);
+});
+
+test("takeover refuses Bridge descendants and non-VS Code owners", async (context) => {
+  const temporary = await mkdtemp(join(tmpdir(), "codex-bridge-takeover-guard-test-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const lockDirectory = join(temporary, "thread-writer-locks");
+  await mkdir(lockDirectory);
+  await writeFile(join(lockDirectory, "thread-1.lock"), "");
+  let owner = {
+    pid: 2222,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    executablePath: "C:\\Users\\test\\.vscode\\extensions\\openai.chatgpt-1.2.3-win32-x64\\bin\\codex.exe",
+    commandLine: "codex.exe app-server",
+    ancestorPids: [1111],
+  };
+  const service = new ThreadTakeoverService({
+    platform: "win32",
+    codexHome: temporary,
+    protectedPids: () => [1111],
+    probeOwners: async () => [owner],
+    secret: Buffer.alloc(32, 9),
+  });
+
+  assert.equal((await service.inspect("thread-1")).reason, "protected_owner");
+  owner = {
+    ...owner,
+    ancestorPids: [3333],
+    executablePath: "C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.exe",
+  };
+  assert.equal((await service.inspect("thread-1")).reason, "unsupported_owner");
 });
 
 test("RPC timeout opens a bounded recovery cooldown", async (context) => {
