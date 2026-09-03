@@ -9,15 +9,33 @@
 <p align="center">
   一个通过手机访问本地 Codex 会话的自托管 Web 界面。<br>
   服务运行在 Windows 回环地址上，并通过 Tailscale Serve 保持私有访问。<br>
-  这个项目是为像我一样在 ChatGPT Desktop 中看不到“远程/连接”入口的人准备的。
+  这个项目是为像我一样在 ChatGPT Desktop 中看不到“远程/连接”入口的人准备的。<br>
+  手机不需要直接访问 ChatGPT 服务，也不必为 ChatGPT 另开代理或 VPN；
+  只需连接同一个 Tailscale tailnet。
 </p>
 
 <p align="center">
+  <a href="https://github.com/ltspace/codex-mobile-bridge/actions/workflows/ci.yml"><img src="https://github.com/ltspace/codex-mobile-bridge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI 状态"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+"></a>
   <a href="https://www.microsoft.com/windows/"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows11&logoColor=white" alt="Windows"></a>
   <a href="https://tailscale.com/"><img src="https://img.shields.io/badge/Network-Tailscale-242424?logo=tailscale&logoColor=white" alt="Tailscale"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
+
+## 快速开始
+
+```powershell
+git clone https://github.com/ltspace/codex-mobile-bridge.git
+cd codex-mobile-bridge
+.\setup.ps1
+```
+
+安装脚本会检查本机环境、启动仅监听回环地址的 Bridge、配置 Tailscale
+Serve，并输出供手机打开的私有 HTTPS 地址。
+
+> [!IMPORTANT]
+> Bridge 会让获准访问的 tailnet 设备通过 Codex 在主机上执行命令。分享访问
+> 地址前，请先检查 tailnet 成员和 ACL。
 
 ## 界面预览
 
@@ -191,7 +209,8 @@ npm run check
 进程、Tailscale Serve、watchdog 调度和另一台手机的访问仍是独立验证项。
 
 实现细节和版本记录见 [ARCHITECTURE.md](./ARCHITECTURE.md) 和
-[CHANGELOG.md](./CHANGELOG.md)。
+[CHANGELOG.md](./CHANGELOG.md)。欢迎参与改进；提交 Issue 或 Pull Request 前，
+请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 许可证
 

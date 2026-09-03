@@ -9,15 +9,33 @@ English | [简体中文](./README.zh-CN.md)
 <p align="center">
   A self-hosted web interface for accessing local Codex conversations from a phone.<br>
   Runs on the Windows loopback interface and stays private through Tailscale Serve.<br>
-  Built for people like me whose ChatGPT Desktop app does not show Remote/Connections.
+  Built for people like me whose ChatGPT Desktop app does not show Remote/Connections.<br>
+  The phone does not need direct access to ChatGPT or a separate ChatGPT proxy/VPN;
+  it only needs to join the same Tailscale tailnet.
 </p>
 
 <p align="center">
+  <a href="https://github.com/ltspace/codex-mobile-bridge/actions/workflows/ci.yml"><img src="https://github.com/ltspace/codex-mobile-bridge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+"></a>
   <a href="https://www.microsoft.com/windows/"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows11&logoColor=white" alt="Windows"></a>
   <a href="https://tailscale.com/"><img src="https://img.shields.io/badge/Network-Tailscale-242424?logo=tailscale&logoColor=white" alt="Tailscale"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
+
+## Quick start
+
+```powershell
+git clone https://github.com/ltspace/codex-mobile-bridge.git
+cd codex-mobile-bridge
+.\setup.ps1
+```
+
+Setup checks the local requirements, starts the loopback-only Bridge, configures
+Tailscale Serve, and prints the private HTTPS URL to open from your phone.
+
+> [!IMPORTANT]
+> The Bridge gives allowed tailnet devices command-execution access through
+> Codex. Review your tailnet membership and ACLs before sharing its URL.
 
 ## Interface preview
 
@@ -206,6 +224,8 @@ and access from a separate phone remain separate verification steps.
 
 For implementation details and release history, see
 [ARCHITECTURE.md](./ARCHITECTURE.md) and [CHANGELOG.md](./CHANGELOG.md).
+Contributions are welcome; read [CONTRIBUTING.md](./CONTRIBUTING.md) before
+opening an issue or pull request.
 
 ## License
 

@@ -6,6 +6,9 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ### Added
 
+- Add a pinned, least-privilege Windows CI workflow, automated GitHub Actions
+  update checks, contribution guidance, and privacy-aware issue and pull-request
+  templates.
 - Add an explicit, double-confirmed mobile conversation takeover that identifies
   the exact Windows lock owner and only stops a verified VS Code Codex App
   Server, while protecting the Bridge and refusing unknown owners.

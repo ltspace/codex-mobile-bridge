@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a focused improvement to Codex Mobile Bridge
+title: "feature: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the user problem first. Do not include private conversation
+        content, tailnet details, access URLs, or credentials.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is difficult or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should the user be able to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Project boundaries
+      options:
+        - label: This keeps the Bridge tailnet-only and does not require public exposure.
+          required: true
+        - label: This does not weaken approval, sandbox, or writer-ownership safeguards.
+          required: true

@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible problem with Codex Mobile Bridge
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Codex Mobile Bridge.
+
+        This is a public repository. Remove tailnet hostnames, access URLs, tokens,
+        personal paths, conversation content, and other private data before posting.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and its visible impact.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. Start the Bridge with ...
+        2. Open ...
+        3. Send ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Do not include hostnames, account names, access URLs, or tokens.
+      placeholder: |
+        Bridge version:
+        Windows version:
+        Node.js version:
+        Codex CLI version:
+        Browser and phone:
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Paste only the minimum relevant log or screenshot after removing private data.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed secrets, private URLs, personal paths, and conversation content.
+          required: true
+        - label: I checked that this issue is not already reported.
+          required: true
