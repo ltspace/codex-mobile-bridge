@@ -15,6 +15,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 - Launch the scheduled watchdog directly through hidden Windows PowerShell so
   Windows Script Host or security-product interception of a VBS wrapper cannot
   disable automatic bridge recovery.
+- Run the scheduled watchdog under a non-interactive S4U user token so its
+  minute-level checks never flash a PowerShell console on the desktop.
 
 ## 0.7.2 - 2026-09-02
 

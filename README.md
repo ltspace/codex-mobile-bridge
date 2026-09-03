@@ -145,6 +145,10 @@ a short network-first window and falls back to that shell on slow or lost links.
 | `.\install-watchdog.ps1` | Install or update automatic recovery. |
 | `.\uninstall-watchdog.ps1` | Remove automatic recovery. |
 
+Watchdog installation requests administrator approval once so Task Scheduler
+can run the minute-level checks under the current user's non-interactive S4U
+token. It does not store a password or open recurring console windows.
+
 Use `bluegreen-restart.ps1` for a planned upgrade while the bridge is healthy
 and idle. By default, it refuses to switch while a turn is active.
 

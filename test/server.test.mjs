@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
 const ROOT = resolve(import.meta.dirname, "..");
+
+test("watchdog runs outside the interactive desktop session", async () => {
+  const installer = await readFile(join(ROOT, "install-watchdog.ps1"), "utf8");
+  assert.match(installer, /New-ScheduledTaskPrincipal[^\r\n]+-LogonType S4U/);
+  assert.doesNotMatch(installer, /-LogonType Interactive/);
+  assert.match(installer, /-RepetitionInterval \(New-TimeSpan -Minutes 1\)/);
+});
 
 async function waitForReady(baseUrl, child) {
   const deadline = Date.now() + 12_000;

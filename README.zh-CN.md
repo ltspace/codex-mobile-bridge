@@ -134,6 +134,9 @@ Service Worker 只缓存静态界面文件。页面导航会先给网络一个�
 | `.\install-watchdog.ps1` | 安装或更新自动恢复任务。 |
 | `.\uninstall-watchdog.ps1` | 删除自动恢复任务。 |
 
+安装 watchdog 时会请求一次管理员确认，以便任务计划程序使用当前用户的
+非交互式 S4U 令牌执行分钟级检查。它不会保存密码，也不会反复弹出控制台窗口。
+
 Bridge 健康且没有任务运行时，计划升级建议使用
 `bluegreen-restart.ps1`。存在活动任务时，该脚本默认拒绝切换。
 

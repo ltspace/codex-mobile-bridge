@@ -52,9 +52,11 @@ Server remain local to the Windows host.
   local configuration, and composes initial service/watchdog installation.
 - `bridge-common.ps1` centralizes Windows process ownership and path discovery.
 - `watchdog.ps1` is a one-shot health/repair transaction. Task Scheduler invokes
-  it every minute through `install-watchdog.ps1`; transient readiness failures
-  require a persisted threshold while a missing process/listener is repaired
-  immediately. `bluegreen-restart.ps1` is the planned-upgrade path.
+  it every minute through `install-watchdog.ps1` under the user's
+  non-interactive S4U token, so checks never create a desktop console window.
+  Transient readiness failures require a persisted threshold while a missing
+  process/listener is repaired immediately. `bluegreen-restart.ps1` is the
+  planned-upgrade path.
 
 ## State and recovery
 
