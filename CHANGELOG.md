@@ -4,6 +4,21 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.8.3 - 2026-09-03
+
+### Fixed
+
+- Render `<skill-citation>` metadata as a compact, expandable Skill card in
+  assistant messages instead of exposing the raw metadata tags on mobile.
+
+## 0.8.2 - 2026-09-03
+
+### Fixed
+
+- Resolve externally owned `notLoaded` conversations from the latest
+  turn-bearing rollout record before takeover, allowing completed desktop
+  sessions to be released while active or unverifiable turns remain fail-closed.
+
 ## 0.8.1 - 2026-09-03
 
 ### Added

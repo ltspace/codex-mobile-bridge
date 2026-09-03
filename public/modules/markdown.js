@@ -97,12 +97,36 @@ function beginsBlock(lines, index) {
   const line = lines[index] || "";
   return Boolean(
     fenceAt(line)
+    || line.trim() === "<skill-citation>"
     || /^\s{0,3}#{1,6}\s+/.test(line)
     || /^\s{0,3}>/.test(line)
     || /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)
     || listAt(line)
     || (index + 1 < lines.length && line.includes("|") && tableDivider(lines[index + 1])),
   );
+}
+
+function skillCitationAt(lines, index) {
+  if (lines[index]?.trim() !== "<skill-citation>") return null;
+  const paths = [];
+  let cursor = index + 1;
+  while (cursor < lines.length && lines[cursor].trim() !== "</skill-citation>") {
+    const path = lines[cursor].trim();
+    if (path) paths.push(path);
+    cursor += 1;
+  }
+  if (cursor >= lines.length) return null;
+  return { paths, nextIndex: cursor + 1 };
+}
+
+function skillName(path) {
+  const parts = String(path || "").replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  if (parts.at(-1)?.toLowerCase() === "skill.md") parts.pop();
+  return parts.at(-1) || "Skill";
+}
+
+function renderSkillCitations(paths) {
+  return paths.map((path) => `<details class="citation-card skill-citation"><summary><span class="citation-kind">Skill</span><span class="citation-name">${escapeHtml(skillName(path))}</span></summary><code>${escapeHtml(path)}</code></details>`).join("");
 }
 
 export function markdownToHtml(source) {
@@ -113,6 +137,13 @@ export function markdownToHtml(source) {
   while (index < lines.length) {
     if (!lines[index].trim()) {
       index += 1;
+      continue;
+    }
+
+    const skillCitation = skillCitationAt(lines, index);
+    if (skillCitation) {
+      output.push(renderSkillCitations(skillCitation.paths));
+      index = skillCitation.nextIndex;
       continue;
     }
 

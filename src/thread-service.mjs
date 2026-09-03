@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import { statSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { BridgeError } from "./errors.mjs";
 import { compactTurnPage, deltaFromTurnPage, findThreadItem } from "./mobile-history.mjs";
 
@@ -9,6 +10,7 @@ const APPROVAL_METHODS = new Set([
 ]);
 const USER_INPUT_METHOD = "item/tool/requestUserInput";
 const THREAD_CLIENTS = new Set(["codex", "openclaw"]);
+const MAX_TAKEOVER_ROLLOUT_TAIL_BYTES = 4 * 1024 * 1024;
 const OPENCLAW_PREVIEW_MARKERS = [
   /(?:^|\n)Conversation info:\s*⟦openclaw:ctx⟧/i,
   /(?:^|\n)OpenClaw runtime context for this turn:/i,
@@ -73,6 +75,46 @@ export function rpcFailure(error) {
     });
   }
   return error;
+}
+
+function rolloutRecordTurnId(record) {
+  return record?.payload?.turn_id
+    || record?.payload?.turn?.id
+    || record?.payload?.internal_chat_message_metadata_passthrough?.turn_id
+    || null;
+}
+
+async function persistedRolloutState(path) {
+  if (typeof path !== "string" || !path.endsWith(".jsonl") || !isAbsolute(path)) {
+    return { type: "unknown", evidence: "rollout_path_unavailable" };
+  }
+  let file;
+  try {
+    file = await open(path, "r");
+    const stats = await file.stat();
+    const length = Math.min(stats.size, MAX_TAKEOVER_ROLLOUT_TAIL_BYTES);
+    if (length === 0) return { type: "unknown", evidence: "rollout_empty" };
+    const buffer = Buffer.alloc(length);
+    await file.read(buffer, 0, length, stats.size - length);
+    const lines = buffer.toString("utf8").split(/\r?\n/);
+    if (stats.size > length) lines.shift();
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (!lines[index]) continue;
+      let record;
+      try { record = JSON.parse(lines[index]); } catch { continue; }
+      const turnId = rolloutRecordTurnId(record);
+      if (!turnId) continue;
+      const completed = record.type === "event_msg"
+        && record.payload?.type === "task_complete"
+        && record.payload?.turn_id === turnId;
+      return { type: completed ? "idle" : "active", evidence: "rollout_tail", turnId };
+    }
+    return { type: "unknown", evidence: "rollout_turn_unavailable" };
+  } catch {
+    return { type: "unknown", evidence: "rollout_unavailable" };
+  } finally {
+    await file?.close().catch(() => {});
+  }
 }
 
 export class ThreadService {
@@ -204,6 +246,19 @@ export class ThreadService {
       code: "takeover_thread_state_unknown",
       retryable: true,
     });
+  }
+
+  async takeoverState(threadId) {
+    const summary = await this.findThreadSummary(threadId);
+    const threadStatus = summary?.status?.type;
+    if (threadStatus === "active") return { type: "active", evidence: "thread_status" };
+    if (threadStatus === "idle") return { type: "idle", evidence: "thread_status" };
+    if (threadStatus !== "notLoaded") return { type: "unknown", evidence: "thread_status" };
+
+    // `notLoaded` only describes this App Server process. Persisted turn pages
+    // can lag an active external writer, so inspect the rollout tail and require
+    // its latest turn-bearing record to be the matching task_complete event.
+    return await persistedRolloutState(summary.path);
   }
 
   async createThread({ cwd, ephemeral = false }) {

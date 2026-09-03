@@ -11,7 +11,7 @@ import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 
-const VERSION = "0.8.1";
+const VERSION = "0.8.3";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -204,8 +204,8 @@ async function handleApi(request, response, url, id) {
         code: "takeover_not_needed",
       });
     }
-    const summary = await threads.findThreadSummary(threadId);
-    if (summary?.status?.type === "active") {
+    const threadState = await threads.takeoverState(threadId);
+    if (threadState.type === "active") {
       if (request.method === "GET") {
         json(response, 200, { available: false, reason: "active_remote_turn", owner: null }, id);
         return true;
@@ -216,7 +216,7 @@ async function handleApi(request, response, url, id) {
         retryable: true,
       });
     }
-    if (summary?.status?.type !== "idle") {
+    if (threadState.type !== "idle") {
       if (request.method === "GET") {
         json(response, 200, { available: false, reason: "thread_state_unknown", owner: null }, id);
         return true;

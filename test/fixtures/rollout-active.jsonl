@@ -1,0 +1,2 @@
+{"timestamp":"2026-09-03T00:00:00.000Z","ordinal":1,"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-previous"}}
+{"timestamp":"2026-09-03T00:00:01.000Z","ordinal":2,"type":"response_item","payload":{"type":"reasoning","internal_chat_message_metadata_passthrough":{"turn_id":"turn-active"}}}

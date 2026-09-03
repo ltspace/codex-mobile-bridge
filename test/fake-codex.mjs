@@ -1,4 +1,5 @@
 import readline from "node:readline";
+import { join } from "node:path";
 
 const reader = readline.createInterface({ input: process.stdin });
 let draftId = 0;
@@ -30,25 +31,33 @@ reader.on("line", (line) => {
       { id: "thread-1", name: "Fixture thread", cwd: process.cwd(), updatedAt: 1_800_000_000, status: { type: "idle" } },
       { id: "thread-conflict", name: "Conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_998, status: { type: "idle" } },
       { id: "thread-active-conflict", name: "Active conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_997, status: { type: "active" } },
+      { id: "thread-terminal-conflict", name: "Terminal not-loaded conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_996, status: { type: "notLoaded" }, path: join(import.meta.dirname, "fixtures", "rollout-terminal.jsonl") },
+      { id: "thread-notloaded-active-conflict", name: "Active not-loaded conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_995, status: { type: "notLoaded" }, path: join(import.meta.dirname, "fixtures", "rollout-active.jsonl") },
       { id: "thread-unknown-conflict", name: "Unknown conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_996, status: { type: "notLoaded" } },
       { id: "openclaw-1", preview: "Conversation info: ⟦openclaw:ctx⟧", cwd: "C:\\home\\fixture\\.openclaw\\workspace", updatedAt: 1_799_999_999, status: { type: "idle" } },
     ], nextCursor: null } });
   } else if (method === "thread/read") {
     send({ id, result: { thread: { id: params.threadId, name: "Fixture thread", cwd: process.cwd(), status: { type: "idle" }, turns: [] } } });
   } else if (method === "thread/turns/list") {
+    if (!["notLoaded", "summary", "full"].includes(params.itemsView)) {
+      send({ id, error: { code: -32602, message: "invalid thread/turns/list itemsView" } });
+      return;
+    }
+    const status = params.threadId === "thread-notloaded-active-conflict" ? "inProgress" : "completed";
+    const data = params.threadId === "thread-unknown-conflict" ? [] : [{
+      id: "turn-1",
+      status,
+      itemsView: "full",
+      items: [
+        { id: "item-user", type: "userMessage", content: [{ type: "input_text", text: "hello" }] },
+        { id: "item-agent", type: "agentMessage", text: "world" },
+        { id: "item-tool", type: "commandExecution", command: "fixture --verbose", status: "completed", aggregatedOutput: "detail ".repeat(800) },
+      ],
+    }];
     send({
       id,
       result: {
-        data: [{
-          id: "turn-1",
-          status: "completed",
-          itemsView: "full",
-          items: [
-            { id: "item-user", type: "userMessage", content: [{ type: "input_text", text: "hello" }] },
-            { id: "item-agent", type: "agentMessage", text: "world" },
-            { id: "item-tool", type: "commandExecution", command: "fixture --verbose", status: "completed", aggregatedOutput: "detail ".repeat(800) },
-          ],
-        }],
+        data,
         nextCursor: null,
       },
     });

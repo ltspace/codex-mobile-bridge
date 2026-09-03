@@ -43,7 +43,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
-      FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-unknown-conflict",
+      FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-terminal-conflict,thread-notloaded-active-conflict,thread-unknown-conflict",
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -65,7 +65,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.8.1");
+  assert.equal(health.version, "0.8.3");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -99,7 +99,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
 
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
-  assert.equal(list.data.length, 4);
+  assert.equal(list.data.length, 6);
   const openclawList = await (await fetch(`${baseUrl}/api/threads?client=openclaw`)).json();
   assert.equal(openclawList.data[0].id, "openclaw-1");
   assert.equal(openclawList.data.length, 1);
@@ -217,6 +217,32 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal((await activeTakeoverPost.json()).error.code, "takeover_active_remote_turn");
   await fetch(`${baseUrl}/api/threads/thread-active-conflict/queue/${activeConflictQueued.queueId}`, { method: "DELETE" });
 
+  const terminalConflictResponse = await fetch(`${baseUrl}/api/threads/thread-terminal-conflict/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "take over after the persisted terminal turn" }),
+  });
+  assert.equal(terminalConflictResponse.status, 202);
+  const terminalConflictQueued = await terminalConflictResponse.json();
+  const terminalTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-terminal-conflict/takeover`);
+  assert.equal(terminalTakeoverResponse.status, 200);
+  const terminalTakeover = await terminalTakeoverResponse.json();
+  assert.equal(terminalTakeover.available, false);
+  assert.ok(["owner_missing", "unsupported_platform"].includes(terminalTakeover.reason));
+  await fetch(`${baseUrl}/api/threads/thread-terminal-conflict/queue/${terminalConflictQueued.queueId}`, { method: "DELETE" });
+
+  const notLoadedActiveResponse = await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "do not stop a persisted active turn" }),
+  });
+  assert.equal(notLoadedActiveResponse.status, 202);
+  const notLoadedActiveQueued = await notLoadedActiveResponse.json();
+  const notLoadedActiveTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/takeover`);
+  assert.equal(notLoadedActiveTakeoverResponse.status, 200);
+  assert.equal((await notLoadedActiveTakeoverResponse.json()).reason, "active_remote_turn");
+  await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/queue/${notLoadedActiveQueued.queueId}`, { method: "DELETE" });
+
   const unknownConflictResponse = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -274,6 +300,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.1"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.3"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

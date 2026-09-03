@@ -74,8 +74,8 @@ try {
 
     $Config = Get-BridgeConfig
     $Health = Get-BridgeHealth $Config 5
-    if (-not ($Health -and $Health.ready -and $Health.version -eq '0.8.1')) {
-        throw 'The repaired Bridge did not start as version 0.8.1.'
+    if (-not ($Health -and $Health.ready -and $Health.version -eq '0.8.3')) {
+        throw 'The repaired Bridge did not start as version 0.8.3.'
     }
     if (-not (Test-BridgeServe $Config)) { throw 'Tailscale Serve does not point to the repaired Bridge.' }
 

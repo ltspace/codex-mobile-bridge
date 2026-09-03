@@ -345,6 +345,19 @@ test("assistant Markdown renders common formatting without executable HTML", () 
   assert.doesNotMatch(html, /href="javascript:/);
 });
 
+test("assistant Markdown renders skill citations as compact traceable cards", () => {
+  const html = markdownToHtml("Done.\n\n<skill-citation>\nC:/Users/lut/.codex/skills/anyextract-test-release/SKILL.md\n</skill-citation>");
+  assert.match(html, /<p>Done\.<\/p>/);
+  assert.match(html, /class="citation-card skill-citation"/);
+  assert.match(html, /class="citation-name">anyextract-test-release<\/span>/);
+  assert.match(html, /<code>C:\/Users\/lut\/\.codex\/skills\/anyextract-test-release\/SKILL\.md<\/code>/);
+  assert.doesNotMatch(html, /&lt;\/?skill-citation&gt;/);
+
+  const unsafe = markdownToHtml("<skill-citation>\nC:/skills/<img src=x onerror=alert(1)>/SKILL.md\n</skill-citation>");
+  assert.doesNotMatch(unsafe, /<img/);
+  assert.match(unsafe, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
 test("every referenced UI message exists in both languages", async () => {
   const sources = await Promise.all([
     "../public/app.js",
