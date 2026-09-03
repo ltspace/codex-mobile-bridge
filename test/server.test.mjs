@@ -43,7 +43,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
-      FAKE_CODEX_CONFLICT_THREAD: "thread-conflict",
+      FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-unknown-conflict",
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -65,7 +65,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.8.0");
+  assert.equal(health.version, "0.8.1");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -99,7 +99,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
 
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
-  assert.equal(list.data.length, 1);
+  assert.equal(list.data.length, 4);
   const openclawList = await (await fetch(`${baseUrl}/api/threads?client=openclaw`)).json();
   assert.equal(openclawList.data[0].id, "openclaw-1");
   assert.equal(openclawList.data.length, 1);
@@ -196,6 +196,48 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal((await cancelConflict.json()).remaining, 0);
   assert.equal((await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json()).data.length, 0);
 
+  const activeConflictResponse = await fetch(`${baseUrl}/api/threads/thread-active-conflict/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "do not force stop the active desktop task" }),
+  });
+  assert.equal(activeConflictResponse.status, 202);
+  const activeConflictQueued = await activeConflictResponse.json();
+  const activeTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-active-conflict/takeover`);
+  assert.equal(activeTakeoverResponse.status, 200);
+  const activeTakeover = await activeTakeoverResponse.json();
+  assert.equal(activeTakeover.available, false);
+  assert.equal(activeTakeover.reason, "active_remote_turn");
+  const activeTakeoverPost = await fetch(`${baseUrl}/api/threads/thread-active-conflict/takeover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: null, owner: null }),
+  });
+  assert.equal(activeTakeoverPost.status, 409);
+  assert.equal((await activeTakeoverPost.json()).error.code, "takeover_active_remote_turn");
+  await fetch(`${baseUrl}/api/threads/thread-active-conflict/queue/${activeConflictQueued.queueId}`, { method: "DELETE" });
+
+  const unknownConflictResponse = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "do not force stop without proven idle state" }),
+  });
+  assert.equal(unknownConflictResponse.status, 202);
+  const unknownConflictQueued = await unknownConflictResponse.json();
+  const unknownTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/takeover`);
+  assert.equal(unknownTakeoverResponse.status, 200);
+  const unknownTakeover = await unknownTakeoverResponse.json();
+  assert.equal(unknownTakeover.available, false);
+  assert.equal(unknownTakeover.reason, "thread_state_unknown");
+  const unknownTakeoverPost = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/takeover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: null, owner: null }),
+  });
+  assert.equal(unknownTakeoverPost.status, 409);
+  assert.equal((await unknownTakeoverPost.json()).error.code, "takeover_thread_state_unknown");
+  await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/queue/${unknownConflictQueued.queueId}`, { method: "DELETE" });
+
   const releaseDeadline = Date.now() + 3_000;
   let releasedHealth;
   while (Date.now() < releaseDeadline) {
@@ -232,6 +274,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.0"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.1"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

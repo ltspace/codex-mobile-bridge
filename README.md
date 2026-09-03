@@ -56,7 +56,8 @@ English | [简体中文](./README.zh-CN.md)
   Codex client releases the conversation.
 - Explicitly take over a blocked conversation after confirmation. On Windows,
   the bridge resolves the exact lock owner and only stops a verified VS Code
-  Codex App Server; Bridge-owned, OpenClaw, and unknown processes are refused.
+  Codex App Server. Active target conversations and writers that own any other
+  conversation are refused, as are Bridge-owned, OpenClaw, and unknown processes.
 - Stream responses over SSE with heartbeats, bounded replay, and incremental
   synchronization after reconnecting.
 - Read conversation lists through the App Server state database and apply a

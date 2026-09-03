@@ -110,6 +110,25 @@ public static class CodexBridgeRestartManager {
 }
 '@
 
+function Get-ThreadIdsOwnedByProcess {
+  param(
+    [Parameter(Mandatory = $true)]
+    [int]$ProcessId,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Directory
+  )
+
+  $threadIds = @()
+  foreach ($LockFile in @(Get-ChildItem -LiteralPath $Directory -Filter '*.lock' -File -ErrorAction SilentlyContinue)) {
+    $lockOwners = @([CodexBridgeRestartManager]::Find($LockFile.FullName))
+    if (@($lockOwners | Where-Object { [int]$_.Process.ProcessId -eq $ProcessId }).Count -gt 0) {
+      $threadIds += [IO.Path]::GetFileNameWithoutExtension($LockFile.Name)
+    }
+  }
+  return @($threadIds | Sort-Object -Unique)
+}
+
 function Get-AncestorProcessIds {
   param([int]$StartingProcessId)
 
@@ -141,6 +160,7 @@ $owners = @(
         commandLine = [string]$process.CommandLine
         parentPid = [int]$process.ParentProcessId
         ancestorPids = @(Get-AncestorProcessIds -StartingProcessId $processId)
+        threadIds = @(Get-ThreadIdsOwnedByProcess -ProcessId $processId -Directory ([IO.Path]::GetDirectoryName($LockPath)))
       }
     }
   }
@@ -156,6 +176,11 @@ if ($Terminate) {
   if ($owner.commandLine -notmatch "\bapp-server\b") { throw "Lock owner is not an app-server" }
   if ($owner.executablePath -notmatch "\\\.vscode(?:-insiders)?\\extensions\\openai\.chatgpt-[^\\]+\\") {
     throw "Lock owner is not a VS Code Codex extension process"
+  }
+  $targetThreadId = [IO.Path]::GetFileNameWithoutExtension($LockPath)
+  $ownedThreadIds = @($owner.threadIds)
+  if ($ownedThreadIds.Count -ne 1 -or $ownedThreadIds[0] -ne $targetThreadId) {
+    throw "Writer owns multiple thread locks"
   }
   Stop-Process -Id $owner.pid -Force -ErrorAction Stop
   Wait-Process -Id $owner.pid -Timeout 5 -ErrorAction SilentlyContinue

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { EventHub } from "../src/event-hub.mjs";
 import { CodexClient, resolveSpawnSpec } from "../src/codex-client.mjs";
 import { entriesFromTurns } from "../public/modules/formatters.js";
 import { BridgeMetrics } from "../src/metrics.mjs";
-import { rpcFailure, threadClient } from "../src/thread-service.mjs";
+import { rpcFailure, ThreadService, threadClient } from "../src/thread-service.mjs";
 import { BridgeStateStore } from "../src/state-store.mjs";
 import { isEligibleVsCodeOwner, ThreadTakeoverService } from "../src/thread-takeover.mjs";
 import { hasTranslation, setLanguage, t } from "../public/modules/i18n.js";
@@ -76,6 +76,7 @@ test("takeover stops only the exact verified VS Code writer", async (context) =>
     commandLine: "codex.exe app-server --analytics-default-enabled",
     parentPid: 1234,
     ancestorPids: [1234],
+    threadIds: ["thread-1"],
   };
   let alive = true;
   const terminated = [];
@@ -96,6 +97,7 @@ test("takeover stops only the exact verified VS Code writer", async (context) =>
     startedAt: "2026-09-03T00:00:00.000Z",
     client: "vscode",
     application: "Codex App Server",
+    lockedThreadCount: 1,
   });
   await assert.rejects(
     service.takeover("thread-1", {
@@ -127,6 +129,7 @@ test("takeover refuses Bridge descendants and non-VS Code owners", async (contex
     executablePath: "C:\\Users\\test\\.vscode\\extensions\\openai.chatgpt-1.2.3-win32-x64\\bin\\codex.exe",
     commandLine: "codex.exe app-server",
     ancestorPids: [1111],
+    threadIds: ["thread-1"],
   };
   const service = new ThreadTakeoverService({
     platform: "win32",
@@ -143,6 +146,49 @@ test("takeover refuses Bridge descendants and non-VS Code owners", async (contex
     executablePath: "C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.exe",
   };
   assert.equal((await service.inspect("thread-1")).reason, "unsupported_owner");
+});
+
+test("takeover refuses a VS Code App Server shared by multiple threads and revalidates before termination", async (context) => {
+  const temporary = await mkdtemp(join(tmpdir(), "codex-bridge-shared-writer-test-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const lockDirectory = join(temporary, "thread-writer-locks");
+  await mkdir(lockDirectory);
+  await writeFile(join(lockDirectory, "thread-1.lock"), "");
+  const owner = {
+    pid: 43210,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    executablePath: "C:\\Users\\test\\.vscode\\extensions\\openai.chatgpt-1.2.3-win32-x64\\bin\\windows-x86_64\\codex.exe",
+    commandLine: "codex.exe app-server",
+    ancestorPids: [1234],
+    threadIds: ["thread-1"],
+  };
+  let shared = false;
+  const terminated = [];
+  const service = new ThreadTakeoverService({
+    platform: "win32",
+    codexHome: temporary,
+    protectedPids: () => [],
+    probeOwners: async () => [{ ...owner, threadIds: shared ? ["thread-1", "thread-2"] : ["thread-1"] }],
+    terminate: async (target) => terminated.push(target.pid),
+    secret: Buffer.alloc(32, 11),
+  });
+
+  const preflight = await service.inspect("thread-1");
+  assert.equal(preflight.available, true);
+  shared = true;
+  await assert.rejects(
+    service.takeover("thread-1", {
+      token: preflight.token,
+      pid: preflight.owner.pid,
+      startedAt: preflight.owner.startedAt,
+    }),
+    (error) => error.code === "takeover_shared_owner",
+  );
+  assert.deepEqual(terminated, []);
+  const sharedPreflight = await service.inspect("thread-1");
+  assert.equal(sharedPreflight.available, false);
+  assert.equal(sharedPreflight.reason, "shared_owner");
+  assert.equal(sharedPreflight.owner.lockedThreadCount, 2);
 });
 
 test("RPC timeout opens a bounded recovery cooldown", async (context) => {
@@ -206,6 +252,57 @@ test("thread client classification separates OpenClaw sessions from ordinary Cod
   assert.equal(threadClient({ cwd: "C:\\work\\project", preview: "Conversation info: ⟦openclaw:ctx⟧\n{}" }), "openclaw");
   assert.equal(threadClient({ cwd: "/work/project", preview: "OpenClaw runtime context for this turn:\ncontext" }), "openclaw");
   assert.equal(threadClient({ cwd: "C:\\home\\lut\\.openclaw\\workspace", preview: "hello" }), "openclaw");
+});
+
+test("completed and interrupted turns resolve only their own pending server requests", async () => {
+  class FakeClient extends EventEmitter {
+    ready = true;
+
+    snapshot() {
+      return { ready: true };
+    }
+
+    request(method) {
+      assert.equal(method, "thread/unsubscribe");
+      return Promise.resolve({});
+    }
+  }
+
+  const client = new FakeClient();
+  const eventHub = new EventHub();
+  const stateStore = {
+    snapshot: () => ({}),
+    peekQueuedMessage: () => null,
+  };
+  const service = new ThreadService({ client, eventHub, stateStore });
+  client.emit("serverRequest", {
+    id: 1,
+    method: "mcpServer/elicitation/request",
+    params: { threadId: "thread-a", turnId: "turn-a" },
+  });
+  client.emit("serverRequest", {
+    id: 2,
+    method: "mcpServer/elicitation/request",
+    params: { threadId: "thread-b", turnId: "turn-b" },
+  });
+
+  client.emit("notification", {
+    method: "turn/completed",
+    params: { threadId: "thread-a", turn: { id: "turn-a", status: "interrupted" } },
+  });
+
+  assert.deepEqual(service.pendingRequests().data.map((request) => request.requestId), ["2"]);
+  assert.deepEqual(
+    eventHub.history.filter((event) => event.method === "bridge/requestResolved").map((event) => event.params),
+    [{ requestId: "1", threadId: "thread-a", turnId: "turn-a", reason: "turn_completed" }],
+  );
+
+  client.emit("notification", {
+    method: "turn/completed",
+    params: { threadId: "thread-b", turn: { id: "turn-b", status: "completed" } },
+  });
+  assert.deepEqual(service.pendingRequests().data, []);
+  await new Promise((resolve) => setImmediate(resolve));
 });
 
 test("queued follow-ups survive a bridge restart until delivered", async (context) => {

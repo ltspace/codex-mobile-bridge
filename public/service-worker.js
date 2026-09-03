@@ -1,4 +1,4 @@
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.8.1";
 const CACHE_PREFIX = "codex-bridge-shell-";
 const CACHE_NAME = `${CACHE_PREFIX}v${APP_VERSION}`;
 const NAVIGATION_TIMEOUT_MS = 3_500;

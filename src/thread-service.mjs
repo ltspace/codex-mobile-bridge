@@ -189,6 +189,23 @@ export class ThreadService {
     return { data };
   }
 
+  async findThreadSummary(threadId, { maxPages = 20 } = {}) {
+    let cursor = null;
+    for (let page = 0; page < maxPages; page += 1) {
+      const result = await this.#listThreads({ limit: 100, cursor, searchTerm: null });
+      const threads = result?.data || result?.threads || result?.items || [];
+      const found = threads.find((thread) => thread?.id === threadId);
+      if (found) return found;
+      cursor = result?.nextCursor || null;
+      if (!cursor) break;
+    }
+    throw new BridgeError("无法确认桌面会话是否仍在运行，已拒绝接管", {
+      status: 409,
+      code: "takeover_thread_state_unknown",
+      retryable: true,
+    });
+  }
+
   async createThread({ cwd, ephemeral = false }) {
     if (typeof cwd !== "string" || !cwd.trim() || cwd.length > 1024 || !isAbsolute(cwd.trim())) {
       throw new BridgeError("请选择一个有效的绝对目录", { status: 400, code: "invalid_cwd" });
@@ -494,6 +511,7 @@ export class ThreadService {
     if (message.method === "turn/started" && threadId && turnId) this.activeTurns.set(threadId, turnId);
     if (message.method === "turn/completed" && threadId) {
       this.activeTurns.delete(threadId);
+      this.#resolveServerRequestsForThread(threadId);
       void this.#releaseThread(threadId).finally(() => this.#drainQueue(threadId));
     }
     if (/^(thread\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
@@ -619,6 +637,19 @@ export class ThreadService {
 
   #invalidateThreadList() {
     this.threadListCache.clear();
+  }
+
+  #resolveServerRequestsForThread(threadId) {
+    for (const [requestId, stored] of this.serverRequests) {
+      if (stored.public.threadId !== threadId) continue;
+      this.serverRequests.delete(requestId);
+      this.eventHub.publish("bridge/requestResolved", {
+        requestId,
+        threadId: stored.public.threadId,
+        turnId: stored.public.turnId,
+        reason: "turn_completed",
+      });
+    }
   }
 
   #serverRequest(message) {

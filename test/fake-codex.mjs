@@ -3,6 +3,7 @@ import readline from "node:readline";
 const reader = readline.createInterface({ input: process.stdin });
 let draftId = 0;
 let turnId = 0;
+const conflictThreads = new Set(String(process.env.FAKE_CODEX_CONFLICT_THREAD || "").split(",").filter(Boolean));
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -27,6 +28,9 @@ reader.on("line", (line) => {
     }
     send({ id, result: { data: [
       { id: "thread-1", name: "Fixture thread", cwd: process.cwd(), updatedAt: 1_800_000_000, status: { type: "idle" } },
+      { id: "thread-conflict", name: "Conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_998, status: { type: "idle" } },
+      { id: "thread-active-conflict", name: "Active conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_997, status: { type: "active" } },
+      { id: "thread-unknown-conflict", name: "Unknown conflict fixture", cwd: process.cwd(), updatedAt: 1_799_999_996, status: { type: "notLoaded" } },
       { id: "openclaw-1", preview: "Conversation info: ⟦openclaw:ctx⟧", cwd: "C:\\home\\fixture\\.openclaw\\workspace", updatedAt: 1_799_999_999, status: { type: "idle" } },
     ], nextCursor: null } });
   } else if (method === "thread/read") {
@@ -63,7 +67,7 @@ reader.on("line", (line) => {
     draftId += 1;
     send({ id, result: { thread: { id: `draft-${draftId}`, name: null, cwd: params.cwd, status: { type: "idle" } } } });
   } else if (method === "thread/resume") {
-    if (params.threadId === process.env.FAKE_CODEX_CONFLICT_THREAD) {
+    if (conflictThreads.has(params.threadId)) {
       send({ id, error: { code: -32600, message: "thread-store conflict: thread already has an active writer" } });
       return;
     }

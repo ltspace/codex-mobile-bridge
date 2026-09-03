@@ -11,7 +11,7 @@ import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 
-const VERSION = "0.8.0";
+const VERSION = "0.8.1";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -202,6 +202,29 @@ async function handleApi(request, response, url, id) {
       throw new BridgeError("此会话当前没有被外部客户端阻塞", {
         status: 409,
         code: "takeover_not_needed",
+      });
+    }
+    const summary = await threads.findThreadSummary(threadId);
+    if (summary?.status?.type === "active") {
+      if (request.method === "GET") {
+        json(response, 200, { available: false, reason: "active_remote_turn", owner: null }, id);
+        return true;
+      }
+      throw new BridgeError("电脑端任务仍在运行；为避免损坏会话历史，已拒绝强制接管", {
+        status: 409,
+        code: "takeover_active_remote_turn",
+        retryable: true,
+      });
+    }
+    if (summary?.status?.type !== "idle") {
+      if (request.method === "GET") {
+        json(response, 200, { available: false, reason: "thread_state_unknown", owner: null }, id);
+        return true;
+      }
+      throw new BridgeError("无法确认桌面会话已空闲，已拒绝接管", {
+        status: 409,
+        code: "takeover_thread_state_unknown",
+        retryable: true,
       });
     }
     if (request.method === "GET") {

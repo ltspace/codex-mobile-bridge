@@ -26,6 +26,9 @@ function normalizeOwner(owner) {
     ancestorPids: Array.isArray(owner.ancestorPids)
       ? owner.ancestorPids.map(Number).filter((value) => Number.isInteger(value) && value > 0)
       : [],
+    threadIds: Array.isArray(owner.threadIds)
+      ? owner.threadIds.map(String).filter((value) => SAFE_THREAD_ID.test(value))
+      : [],
   };
 }
 
@@ -56,7 +59,7 @@ async function powershellProbe(lockPath, {
     "-LockPath", lockPath,
   ], {
     windowsHide: true,
-    timeout: 8_000,
+    timeout: 12_000,
     maxBuffer: 64 * 1024,
   });
   const parsed = JSON.parse(String(stdout || "{}").trim() || "{}");
@@ -80,7 +83,7 @@ async function powershellTerminate(owner, lockPath, {
       "-ExpectedStartedAt", owner.startedAt,
     ], {
       windowsHide: true,
-      timeout: 8_000,
+      timeout: 15_000,
       maxBuffer: 64 * 1024,
     });
     const parsed = JSON.parse(String(stdout || "{}").trim() || "{}");
@@ -94,6 +97,13 @@ async function powershellTerminate(owner, lockPath, {
         retryable: true,
       });
     }
+    if (/multiple thread locks/i.test(output)) {
+      throw new BridgeError("该桌面 Codex 进程同时持有其他会话，不能安全停止", {
+        status: 409,
+        code: "takeover_shared_owner",
+        retryable: false,
+      });
+    }
     throw error;
   }
 }
@@ -104,6 +114,7 @@ function publicOwner(owner) {
     startedAt: owner.startedAt,
     client: "vscode",
     application: "Codex App Server",
+    lockedThreadCount: owner.threadIds.length,
   };
 }
 
@@ -149,6 +160,9 @@ export class ThreadTakeoverService {
     if (!isEligibleVsCodeOwner(owner)) {
       return { available: false, reason: "unsupported_owner", owner: { ...publicOwner(owner), client: "other" } };
     }
+    if (owner.threadIds.length !== 1 || owner.threadIds[0] !== threadId) {
+      return { available: false, reason: "shared_owner", owner: publicOwner(owner) };
+    }
     return {
       available: true,
       reason: null,
@@ -174,8 +188,33 @@ export class ThreadTakeoverService {
           retryable: true,
         });
       }
-      await this.terminate(expectedOwner, this.#lockPath(threadId));
-      return { ok: true, terminated: true, owner: publicOwner(expectedOwner) };
+      const owners = await this.#owners(threadId);
+      const currentOwner = owners.length === 1 ? owners[0] : null;
+      if (!currentOwner
+        || currentOwner.pid !== expectedOwner.pid
+        || currentOwner.startedAt !== expectedOwner.startedAt) {
+        throw new BridgeError("持锁进程已经变化，请重新确认", {
+          status: 409,
+          code: "takeover_owner_changed",
+          retryable: true,
+        });
+      }
+      if (isProtectedOwner(currentOwner, this.protectedPids()) || !isEligibleVsCodeOwner(currentOwner)) {
+        throw new BridgeError("持锁进程已经变化，请重新确认", {
+          status: 409,
+          code: "takeover_owner_changed",
+          retryable: true,
+        });
+      }
+      if (currentOwner.threadIds.length !== 1 || currentOwner.threadIds[0] !== threadId) {
+        throw new BridgeError("该桌面 Codex 进程同时持有其他会话，不能安全停止", {
+          status: 409,
+          code: "takeover_shared_owner",
+          retryable: false,
+        });
+      }
+      await this.terminate(currentOwner, this.#lockPath(threadId));
+      return { ok: true, terminated: true, owner: publicOwner(currentOwner) };
     } catch (error) {
       if (error instanceof BridgeError) throw error;
       throw new BridgeError("无法检查或停止桌面端持锁进程", {

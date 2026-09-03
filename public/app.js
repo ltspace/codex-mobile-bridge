@@ -604,7 +604,9 @@ async function takeoverConversation() {
   try {
     const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { timeoutMs: 12_000 });
     if (!preflight.available && preflight.reason !== "owner_missing") {
-      showBanner(t(`takeover.${preflight.reason}`));
+      showBanner(t(`takeover.${preflight.reason}`, {
+        count: preflight.owner?.lockedThreadCount || 0,
+      }));
       return;
     }
     if (preflight.available && !window.confirm(t("takeover.confirm", {
@@ -615,7 +617,7 @@ async function takeoverConversation() {
     await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, {
       method: "POST",
       body: JSON.stringify({ token: preflight.token || null, owner: preflight.owner || null }),
-      timeoutMs: 15_000,
+      timeoutMs: 20_000,
     });
     state.externalWriter = false;
     hideBanner();
