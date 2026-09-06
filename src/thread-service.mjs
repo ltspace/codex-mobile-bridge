@@ -126,6 +126,8 @@ export class ThreadService {
     sandboxMode = "danger-full-access",
     archiveClientFactory = null,
     archiveTimeoutMs = 20_000,
+    disconnectGraceMs = 10_000,
+    disconnectRetryMs = 2_000,
   }) {
     this.client = client;
     this.stateStore = stateStore;
@@ -134,9 +136,14 @@ export class ThreadService {
     this.sandboxMode = sandboxMode;
     this.archiveClientFactory = archiveClientFactory;
     this.archiveTimeoutMs = archiveTimeoutMs;
+    this.disconnectGraceMs = disconnectGraceMs;
+    this.disconnectRetryMs = disconnectRetryMs;
     this.archiveOperation = null;
     this.activeTurns = new Map();
+    this.loadedThreads = new Set();
     this.releasePromises = new Map();
+    this.disconnectRecycleTimer = null;
+    this.recyclePromise = null;
     this.queueDrains = new Map();
     this.queueDrainItems = new Map();
     this.queueRetryTimers = new Map();
@@ -151,16 +158,22 @@ export class ThreadService {
       if (!snapshot.ready) {
         this.activeTurns.clear();
         this.serverRequests.clear();
+        this.loadedThreads.clear();
       } else if (!snapshot.degraded) {
         this.#drainAllQueues();
       }
       eventHub.publish("bridge/state", this.snapshot());
     });
+    eventHub.on("clientsChanged", (count) => this.#eventClientsChanged(count));
   }
 
   snapshot() {
     return {
       activeTurns: Object.fromEntries(this.activeTurns),
+      writerLifecycle: {
+        loadedThreads: this.loadedThreads.size,
+        disconnectRecyclePending: Boolean(this.disconnectRecycleTimer || this.recyclePromise),
+      },
       pendingRequests: this.serverRequests.size,
       permissions: {
         approvalPolicy: this.approvalPolicy,
@@ -281,7 +294,10 @@ export class ThreadService {
         threadSource: "codex_mobile_bridge",
       });
       const thread = result.thread || result;
-      if (thread?.id) this.stateStore.addDraft(thread.id);
+      if (thread?.id) {
+        this.stateStore.addDraft(thread.id);
+        this.loadedThreads.add(thread.id);
+      }
       this.#invalidateThreadList();
       return result;
     } catch (error) {
@@ -569,6 +585,7 @@ export class ThreadService {
       this.#resolveServerRequestsForThread(threadId);
       void this.#releaseThread(threadId).finally(() => this.#drainQueue(threadId));
     }
+    if (message.method === "thread/closed" && threadId) this.loadedThreads.delete(threadId);
     if (/^(thread\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
     this.eventHub.publish(message.method, params);
   }
@@ -577,6 +594,10 @@ export class ThreadService {
     const pending = this.releasePromises.get(threadId);
     if (pending) return pending;
     const release = this.client.request("thread/unsubscribe", { threadId })
+      .then((result) => {
+        if (result?.status === "notLoaded") this.loadedThreads.delete(threadId);
+        return result;
+      })
       .catch((error) => {
         this.eventHub.publish("bridge/threadReleaseFailed", {
           threadId,
@@ -603,6 +624,7 @@ export class ThreadService {
         await this.client.request("thread/resume", { threadId });
         resumed = true;
       }
+      this.loadedThreads.add(threadId);
       const result = await this.client.request("turn/start", {
         threadId,
         input,
@@ -692,6 +714,57 @@ export class ThreadService {
 
   #invalidateThreadList() {
     this.threadListCache.clear();
+  }
+
+  #eventClientsChanged(count) {
+    if (count > 0) {
+      clearTimeout(this.disconnectRecycleTimer);
+      this.disconnectRecycleTimer = null;
+      return;
+    }
+    this.#scheduleDisconnectedRecycle(this.disconnectGraceMs);
+  }
+
+  #scheduleDisconnectedRecycle(delayMs) {
+    if (this.disconnectRecycleTimer || this.recyclePromise || this.loadedThreads.size === 0) return;
+    this.disconnectRecycleTimer = setTimeout(() => {
+      this.disconnectRecycleTimer = null;
+      void this.#recycleDisconnectedClient();
+    }, delayMs);
+    this.disconnectRecycleTimer.unref?.();
+  }
+
+  async #recycleDisconnectedClient() {
+    if (this.eventHub.clients.size > 0 || this.loadedThreads.size === 0) return;
+    const busy = this.activeTurns.size > 0
+      || this.serverRequests.size > 0
+      || Boolean(this.archiveOperation)
+      || this.queueDrains.size > 0
+      || this.stateStore.snapshot().queuedMessages > 0
+      || this.client.snapshot().pendingRpc > 0;
+    if (busy) {
+      this.#scheduleDisconnectedRecycle(this.disconnectRetryMs);
+      return;
+    }
+
+    const threadCount = this.loadedThreads.size;
+    this.eventHub.publish("bridge/appServerRecycleStarted", { reason: "mobile_disconnected", threadCount });
+    const recycle = this.client.restart()
+      .then(() => {
+        this.eventHub.publish("bridge/appServerRecycleCompleted", { reason: "mobile_disconnected", threadCount });
+      })
+      .catch((error) => {
+        this.eventHub.publish("bridge/appServerRecycleFailed", {
+          reason: "mobile_disconnected",
+          threadCount,
+          error: String(error?.message || error),
+        });
+      })
+      .finally(() => {
+        if (this.recyclePromise === recycle) this.recyclePromise = null;
+      });
+    this.recyclePromise = recycle;
+    await recycle;
   }
 
   #resolveServerRequestsForThread(threadId) {

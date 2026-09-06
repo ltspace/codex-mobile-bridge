@@ -115,6 +115,11 @@ export class CodexClient extends EventEmitter {
     });
   }
 
+  async restart() {
+    await this.stop();
+    await this.start();
+  }
+
   request(method, params = {}, timeoutMs = 30_000) {
     if (!this.ready) return Promise.reject(new Error(this.error || "Codex app-server is not ready"));
     const cooldownError = this.#cooldownError(method);
@@ -181,7 +186,7 @@ export class CodexClient extends EventEmitter {
 
     try {
       await this.#requestRaw("initialize", {
-        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.8.3" },
+        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.8.4" },
         capabilities: { experimentalApi: true },
       }, this.initializeTimeoutMs);
       this.#write({ method: "initialized", params: {} });

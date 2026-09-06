@@ -23,6 +23,119 @@ test("event hub keeps a bounded replay window", () => {
   assert.deepEqual(hub.history.map((event) => event.method), ["two", "three"]);
 });
 
+test("event hub reports the final mobile event client disconnect", () => {
+  const hub = new EventHub();
+  const request = new EventEmitter();
+  request.url = "/api/events";
+  request.headers = {};
+  const response = { writeHead() {}, write() {}, end() {} };
+  const counts = [];
+  hub.on("clientsChanged", (count) => counts.push(count));
+
+  assert.equal(hub.attach(request, response, {}), true);
+  request.emit("close");
+
+  assert.deepEqual(counts, [1, 0]);
+});
+
+test("mobile disconnect recycles an idle App Server that still owns threads", async () => {
+  class FakeClient extends EventEmitter {
+    ready = true;
+    restarts = 0;
+
+    snapshot() {
+      return { ready: true, pendingRpc: 0 };
+    }
+
+    request(method) {
+      if (method === "thread/start") {
+        return Promise.resolve({ thread: { id: "mobile-thread", status: { type: "idle" } } });
+      }
+      throw new Error(`unexpected method: ${method}`);
+    }
+
+    async restart() {
+      this.restarts += 1;
+    }
+  }
+
+  const client = new FakeClient();
+  const eventHub = new EventHub();
+  const stateStore = {
+    addDraft() {},
+    snapshot: () => ({ queuedMessages: 0 }),
+  };
+  const service = new ThreadService({
+    client,
+    eventHub,
+    stateStore,
+    disconnectGraceMs: 1,
+    disconnectRetryMs: 1,
+  });
+  await service.createThread({ cwd: tmpdir() });
+  assert.equal(service.snapshot().writerLifecycle.loadedThreads, 1);
+
+  eventHub.emit("clientsChanged", 0);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(client.restarts, 1);
+  assert.ok(eventHub.history.some((event) => event.method === "bridge/appServerRecycleCompleted"));
+});
+
+test("mobile disconnect waits for an active turn before recycling", async () => {
+  class FakeClient extends EventEmitter {
+    ready = true;
+    restarts = 0;
+
+    snapshot() {
+      return { ready: true, pendingRpc: 0 };
+    }
+
+    request(method) {
+      if (method === "thread/start") {
+        return Promise.resolve({ thread: { id: "active-mobile-thread", status: { type: "idle" } } });
+      }
+      if (method === "thread/unsubscribe") return Promise.resolve({ status: "unsubscribed" });
+      throw new Error(`unexpected method: ${method}`);
+    }
+
+    async restart() {
+      this.restarts += 1;
+    }
+  }
+
+  const client = new FakeClient();
+  const eventHub = new EventHub();
+  const stateStore = {
+    addDraft() {},
+    snapshot: () => ({ queuedMessages: 0 }),
+    peekQueuedMessage: () => null,
+  };
+  const service = new ThreadService({
+    client,
+    eventHub,
+    stateStore,
+    disconnectGraceMs: 1,
+    disconnectRetryMs: 1,
+  });
+  await service.createThread({ cwd: tmpdir() });
+  client.emit("notification", {
+    method: "turn/started",
+    params: { threadId: "active-mobile-thread", turn: { id: "turn-active" } },
+  });
+
+  eventHub.emit("clientsChanged", 0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(client.restarts, 0);
+
+  client.emit("notification", {
+    method: "turn/completed",
+    params: { threadId: "active-mobile-thread", turn: { id: "turn-active", status: "completed" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(client.restarts, 1);
+});
+
 test("non-Windows commands remain direct child processes", () => {
   assert.deepEqual(resolveSpawnSpec("codex", ["app-server"], "linux"), {
     command: "codex",

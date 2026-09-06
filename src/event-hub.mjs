@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 
-export class EventHub {
+export class EventHub extends EventEmitter {
   constructor({ replaySize = 256, maxClients = 16 } = {}) {
+    super();
     this.replaySize = replaySize;
     this.maxClients = maxClients;
     this.sequence = 0;
@@ -72,7 +74,11 @@ export class EventHub {
       at: new Date().toISOString(),
     }));
     this.clients.add(response);
-    request.on("close", () => this.clients.delete(response));
+    this.emit("clientsChanged", this.clients.size);
+    request.on("close", () => {
+      if (!this.clients.delete(response)) return;
+      this.emit("clientsChanged", this.clients.size);
+    });
     return true;
   }
 
@@ -83,7 +89,9 @@ export class EventHub {
 
   close() {
     for (const response of this.clients) response.end();
+    const hadClients = this.clients.size > 0;
     this.clients.clear();
+    if (hadClients) this.emit("clientsChanged", 0);
   }
 
   #encode(event) {

@@ -4,6 +4,18 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.8.4 - 2026-09-04
+
+### Fixed
+
+- Recycle the Bridge-owned Codex App Server after the final mobile event client
+  disconnects and all mobile work becomes idle. Codex 0.151 keeps an
+  unsubscribed thread loaded for 30 minutes, so `thread/unsubscribe` alone does
+  not promptly release its writer lock for desktop clients.
+- Defer that recycle while turns, server requests, queued messages, archives,
+  queue drains, or RPCs are active, preserving in-flight mobile work.
+- Expose loaded-writer and pending-recycle state in `/api/health`.
+
 ## 0.8.3 - 2026-09-03
 
 ### Fixed
