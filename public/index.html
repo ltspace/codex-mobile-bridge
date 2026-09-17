@@ -120,6 +120,11 @@
             <div><strong data-i18n="takeover.title">Conversation held on desktop</strong><span data-i18n="takeover.description">A queued message is waiting for the desktop Codex writer.</span></div>
             <button id="takeoverButton" class="takeover-button" type="button" data-i18n="actions.takeover">Take over</button>
           </div>
+          <div id="modelControls" class="model-controls" role="group" aria-label="Model settings" data-i18n-aria-label="model.settings">
+            <label><span data-i18n="model.label">Model</span><select id="modelSelect" aria-label="Model" data-i18n-aria-label="model.label" disabled></select></label>
+            <label><span data-i18n="model.effort">Reasoning</span><select id="effortSelect" aria-label="Reasoning level" data-i18n-aria-label="model.effort" disabled></select></label>
+            <small data-i18n="model.appliesNext">Applies to the next turn</small>
+          </div>
           <div id="composerHint" class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
           <form id="composer" class="composer">
             <textarea id="messageInput" rows="1" maxlength="20000" placeholder="Send a message to Codex…" data-i18n-placeholder="composer.placeholder" disabled></textarea>
@@ -144,6 +149,10 @@
           <button id="workspaceToggle" class="workspace-toggle" type="button" aria-label="Choose a recent directory" data-i18n-aria-label="new.chooseRecent" aria-expanded="false" aria-controls="workspaceOptions">⌄</button>
         </div>
         <div id="workspaceOptions" class="workspace-options hidden" role="listbox"></div>
+      </div>
+      <div class="model-fields">
+        <label class="field"><span data-i18n="model.label">Model</span><select id="newModelSelect" aria-label="Model" data-i18n-aria-label="model.label"></select></label>
+        <label class="field"><span data-i18n="model.effort">Reasoning</span><select id="newEffortSelect" aria-label="Reasoning level" data-i18n-aria-label="model.effort"></select></label>
       </div>
       <label class="check-field"><input id="ephemeralThread" type="checkbox"> <span data-i18n="new.ephemeral">Temporary conversation (do not retain after closing)</span></label>
       <div id="newThreadHint" class="form-hint" data-i18n="new.loadingWorkspaces">Loading recent directories…</div>

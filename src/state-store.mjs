@@ -29,8 +29,16 @@ export class BridgeStateStore {
     this.#save();
   }
 
-  enqueueMessage(threadId, text, { reason = "manual" } = {}) {
-    const item = { id: randomUUID(), threadId, text, reason, createdAt: Date.now() };
+  enqueueMessage(threadId, text, { reason = "manual", model = null, effort = null } = {}) {
+    const item = {
+      id: randomUUID(),
+      threadId,
+      text,
+      reason,
+      ...(typeof model === "string" && model ? { model } : {}),
+      ...(typeof effort === "string" && effort ? { effort } : {}),
+      createdAt: Date.now(),
+    };
     this.queuedMessages.push(item);
     this.#compact();
     this.#save();
@@ -112,6 +120,8 @@ export class BridgeStateStore {
             threadId: item.threadId,
             text: item.text,
             reason: typeof item.reason === "string" && item.reason ? item.reason : "manual",
+            ...(typeof item.model === "string" && item.model ? { model: item.model } : {}),
+            ...(typeof item.effort === "string" && item.effort ? { effort: item.effort } : {}),
             createdAt: item.createdAt,
           });
         }
@@ -135,7 +145,7 @@ export class BridgeStateStore {
     mkdirSync(dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.${process.pid}.tmp`;
     const payload = {
-      version: 3,
+      version: 4,
       pendingFirstTurns: [...this.drafts].map(([threadId, createdAt]) => ({ threadId, createdAt })),
       queuedMessages: this.queuedMessages,
     };

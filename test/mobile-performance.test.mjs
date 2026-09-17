@@ -102,6 +102,25 @@ test("new conversation uses a touch-friendly workspace picker", async () => {
   assert.match(app, /workspaceToggle\.addEventListener\("click", toggleWorkspaceOptions\)/);
 });
 
+test("model and reasoning selectors use the live catalog and persist queued turn settings", async () => {
+  const root = new URL("..", import.meta.url);
+  const [page, app, service] = await Promise.all([
+    readFile(new URL("public/index.html", root), "utf8"),
+    readFile(new URL("public/app.js", root), "utf8"),
+    readFile(new URL("src/thread-service.mjs", root), "utf8"),
+  ]);
+
+  assert.match(page, /id="modelSelect"/);
+  assert.match(page, /id="effortSelect"/);
+  assert.match(page, /id="newModelSelect"/);
+  assert.match(app, /api\("\/api\/models"\)/);
+  assert.match(app, /\/settings`[\s\S]*?method: "PATCH"/);
+  assert.match(service, /client\.request\("model\/list"/);
+  assert.match(service, /client\.request\("thread\/settings\/update"/);
+  assert.match(service, /model: item\.model \|\| null/);
+  assert.match(service, /effort: item\.effort \|\| null/);
+});
+
 test("mobile actions use a topbar drawer instead of consuming conversation-list space", async () => {
   const root = new URL("..", import.meta.url);
   const [page, app] = await Promise.all([

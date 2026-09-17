@@ -21,6 +21,8 @@ import { createPwaController } from "./modules/pwa.js";
 translateDocument(document);
 
 const THEME_STORAGE_KEY = "codexBridge.theme";
+const MODEL_STORAGE_KEY = "codexBridge.model";
+const EFFORT_STORAGE_KEY = "codexBridge.effort";
 
 function syncThemeButton() {
   const isLight = document.documentElement.dataset.theme === "light";
@@ -187,6 +189,155 @@ function toast(message) {
   toastTimer = setTimeout(() => elements.toast.classList.add("hidden"), 1800);
 }
 
+function modelValue(model) {
+  return typeof model?.model === "string" && model.model ? model.model : model?.id || "";
+}
+
+function modelByValue(value) {
+  return state.models.find((model) => modelValue(model) === value || model.id === value) || null;
+}
+
+function defaultModel() {
+  return state.models.find((model) => model.isDefault) || state.models[0] || null;
+}
+
+function effortOptions(model) {
+  return (model?.supportedReasoningEfforts || [])
+    .map((option) => ({ value: option.reasoningEffort, description: option.description || "" }))
+    .filter((option) => typeof option.value === "string" && option.value);
+}
+
+function effortLabel(value) {
+  const key = `effort.${value}`;
+  const translated = t(key);
+  return translated === key ? value : translated;
+}
+
+function fillSelect(select, options, value, emptyLabel) {
+  select.replaceChildren(...(options.length ? options : [{ value: "", label: emptyLabel }]).map((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    if (item.description) option.title = item.description;
+    return option;
+  }));
+  if (options.some((item) => item.value === value)) select.value = value;
+}
+
+function selectedModelSettings() {
+  return {
+    model: state.selected?.model || elements.modelSelect.value || null,
+    effort: state.selected?.reasoningEffort || elements.effortSelect.value || null,
+  };
+}
+
+function renderModelControls() {
+  const selectedValue = state.selected?.model || modelValue(defaultModel());
+  const catalogOptions = state.models.map((model) => ({
+    value: modelValue(model),
+    label: model.displayName || modelValue(model),
+    description: model.description || "",
+  }));
+  if (selectedValue && !catalogOptions.some((option) => option.value === selectedValue)) {
+    catalogOptions.push({ value: selectedValue, label: selectedValue, description: "" });
+  }
+  fillSelect(elements.modelSelect, catalogOptions, selectedValue, t(state.modelsLoading ? "model.loading" : "model.unavailable"));
+  const model = modelByValue(elements.modelSelect.value);
+  const selectedEffort = state.selected?.reasoningEffort || model?.defaultReasoningEffort || "";
+  const efforts = effortOptions(model).map((option) => ({ ...option, label: effortLabel(option.value) }));
+  if (selectedEffort && !efforts.some((option) => option.value === selectedEffort)) {
+    efforts.push({ value: selectedEffort, label: effortLabel(selectedEffort), description: "" });
+  }
+  fillSelect(elements.effortSelect, efforts, selectedEffort, t(state.modelsLoading ? "model.loading" : "model.unavailable"));
+  const disabled = !state.selected || state.modelsLoading || !state.models.length || state.settingsSaving;
+  elements.modelSelect.disabled = disabled;
+  elements.effortSelect.disabled = disabled || !efforts.length;
+}
+
+function renderNewModelControls({ preserve = true } = {}) {
+  const storedModel = localStorage.getItem(MODEL_STORAGE_KEY);
+  const currentModel = preserve ? elements.newModelSelect.value : "";
+  const preferredModel = currentModel || storedModel || state.selected?.model || modelValue(defaultModel());
+  const models = state.models.map((model) => ({ value: modelValue(model), label: model.displayName || modelValue(model), description: model.description || "" }));
+  fillSelect(elements.newModelSelect, models, preferredModel, t(state.modelsLoading ? "model.loading" : "model.unavailable"));
+  const model = modelByValue(elements.newModelSelect.value);
+  const currentEffort = preserve ? elements.newEffortSelect.value : "";
+  const preferredEffort = currentEffort || localStorage.getItem(EFFORT_STORAGE_KEY) || model?.defaultReasoningEffort || "";
+  const efforts = effortOptions(model).map((option) => ({ ...option, label: effortLabel(option.value) }));
+  fillSelect(elements.newEffortSelect, efforts, preferredEffort, t(state.modelsLoading ? "model.loading" : "model.unavailable"));
+  elements.newModelSelect.disabled = state.modelsLoading || !models.length;
+  elements.newEffortSelect.disabled = elements.newModelSelect.disabled || !efforts.length;
+}
+
+async function loadModels() {
+  state.modelsLoading = true;
+  renderModelControls();
+  renderNewModelControls();
+  try {
+    const result = await api("/api/models");
+    state.models = (result.data || []).filter((model) => modelValue(model));
+  } catch (error) {
+    const info = errorInfo(error);
+    showBanner(info.message, { retry: info.retryable ? loadModels : null });
+  } finally {
+    state.modelsLoading = false;
+    renderModelControls();
+    renderNewModelControls();
+  }
+}
+
+function updateSelectedSettings(threadId, model, effort) {
+  const changes = {
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+  };
+  state.threads = state.threads.map((thread) => thread.id === threadId ? { ...thread, ...changes } : thread);
+  if (state.selected?.id === threadId) state.selected = { ...state.selected, ...changes };
+}
+
+async function saveModelSettings(model, effort, previous) {
+  if (!state.selected || state.settingsSaving) return;
+  const threadId = state.selected.id;
+  state.settingsSaving = true;
+  updateSelectedSettings(threadId, model, effort);
+  renderModelControls();
+  updateComposer();
+  try {
+    const result = await api(`/api/threads/${encodeURIComponent(threadId)}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ model, effort }),
+    });
+    updateSelectedSettings(threadId, result.model || model, result.reasoningEffort || effort);
+    localStorage.setItem(MODEL_STORAGE_KEY, result.model || model);
+    localStorage.setItem(EFFORT_STORAGE_KEY, result.reasoningEffort || effort);
+    toast(t("model.saved"));
+  } catch (error) {
+    updateSelectedSettings(threadId, previous.model, previous.effort);
+    showBanner(errorInfo(error).message);
+  } finally {
+    state.settingsSaving = false;
+    renderModelControls();
+    updateComposer();
+  }
+}
+
+function changeSelectedModel() {
+  if (!state.selected) return;
+  const previous = { model: state.selected.model || null, effort: state.selected.reasoningEffort || null };
+  const model = modelByValue(elements.modelSelect.value);
+  const efforts = effortOptions(model);
+  const effort = efforts.some((option) => option.value === previous.effort)
+    ? previous.effort
+    : model?.defaultReasoningEffort || efforts[0]?.value || null;
+  void saveModelSettings(modelValue(model), effort, previous);
+}
+
+function changeSelectedEffort() {
+  if (!state.selected) return;
+  const previous = { model: state.selected.model || null, effort: state.selected.reasoningEffort || null };
+  void saveModelSettings(elements.modelSelect.value, elements.effortSelect.value, previous);
+}
+
 const pwaController = createPwaController();
 
 function openDrawer() {
@@ -340,6 +491,7 @@ async function selectThread(summary, { isNew = false, silent = false } = {}) {
   state.historyCursor = null;
   state.latestTurnId = null;
   state.streaming.clear();
+  renderModelControls();
   syncSelectedActivity();
   renderThreads();
   renderRequests();
@@ -363,6 +515,7 @@ async function selectThread(summary, { isNew = false, silent = false } = {}) {
     ]);
     if (version !== state.selectionVersion) return;
     state.selected = { ...summary, ...threadObject(threadResult) };
+    renderModelControls();
     state.historyItems = entriesFromTurns(turnsResult);
     state.historyCursor = turnsResult.nextCursor || null;
     state.latestTurnId = latestTurnId(turnsResult);
@@ -474,7 +627,7 @@ function updateComposer() {
   const selected = Boolean(state.selected);
   const recovering = state.connection === "degraded";
   const canConnect = state.ready && state.connection !== "offline" && !recovering;
-  elements.messageInput.disabled = !selected || !canConnect || state.submitting;
+  elements.messageInput.disabled = !selected || !canConnect || state.submitting || state.settingsSaving;
   elements.sendButton.disabled = elements.messageInput.disabled || !elements.messageInput.value.trim();
   const queued = state.selected ? Number(state.queuedByThread[state.selected.id] || 0) : 0;
   const willQueue = state.busy || state.externalWriter || queued > 0;
@@ -492,6 +645,7 @@ function updateComposer() {
   else if (state.busy) elements.composerHint.textContent = t("composer.queueHint");
   else elements.composerHint.textContent = t("composer.keyboardHint");
   updateArchiveActions();
+  renderModelControls();
 }
 
 function updateArchiveActions() {
@@ -527,7 +681,7 @@ async function sendMessage(event) {
   try {
     const result = await api(`/api/threads/${encodeURIComponent(threadId)}/send`, {
       method: "POST",
-      body: JSON.stringify({ text, mode, expectedTurnId: state.activeTurnId }),
+      body: JSON.stringify({ text, mode, expectedTurnId: state.activeTurnId, ...selectedModelSettings() }),
       timeoutMs: 45_000,
     });
     entry.pending = false;
@@ -662,6 +816,7 @@ function clearSelectedThread() {
   state.busy = false;
   state.externalWriter = false;
   state.streaming.clear();
+  renderModelControls();
   elements.chatTitle.textContent = t(state.threadClient === "openclaw" ? "threads.selectOpenClaw" : "threads.select");
   elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
   elements.messageInput.value = "";
@@ -719,6 +874,13 @@ function handleEvent(event) {
 
   const threadId = eventThreadId(params);
   const turnId = eventTurnId(params);
+  if (method === "thread/settings/updated" && threadId) {
+    const settings = params.threadSettings || {};
+    updateSelectedSettings(threadId, settings.model, settings.effort);
+    renderModelControls();
+    renderThreads();
+    return;
+  }
   if (method === "bridge/messageQueued" && threadId) {
     state.queuedByThread[threadId] = Math.max(Number(state.queuedByThread[threadId] || 0), Number(params.position || 1));
     if (threadId === state.selected?.id && params.item) {
@@ -991,6 +1153,7 @@ async function openNewThread() {
   setWorkspaceOptionsOpen(false);
   elements.newThreadHint.className = "form-hint";
   elements.newThreadHint.textContent = t("new.loadingWorkspaces");
+  renderNewModelControls({ preserve: false });
   const remembered = localStorage.getItem("codexBridge.lastCwd") || state.selected?.cwd || "";
   try {
     const result = await api("/api/workspaces");
@@ -1025,12 +1188,19 @@ async function createThread(event) {
   try {
     const result = await api("/api/threads", {
       method: "POST",
-      body: JSON.stringify({ cwd, ephemeral: elements.ephemeralThread.checked }),
+      body: JSON.stringify({
+        cwd,
+        ephemeral: elements.ephemeralThread.checked,
+        model: elements.newModelSelect.value || null,
+        effort: elements.newEffortSelect.value || null,
+      }),
       timeoutMs: 45_000,
     });
     const thread = threadObject(result);
     if (!thread.id) throw new Error(t("new.missingId"));
     localStorage.setItem("codexBridge.lastCwd", cwd);
+    if (elements.newModelSelect.value) localStorage.setItem(MODEL_STORAGE_KEY, elements.newModelSelect.value);
+    if (elements.newEffortSelect.value) localStorage.setItem(EFFORT_STORAGE_KEY, elements.newEffortSelect.value);
     if (state.threadClient !== "codex") switchThreadClient("codex", { reload: false });
     state.threads = [thread, ...state.threads.filter((item) => item.id !== thread.id)];
     closeNewThread();
@@ -1112,7 +1282,7 @@ elements.actionDrawerBackdrop.addEventListener("click", () => closeActionDrawer(
 async function refreshAll() {
   elements.refreshButton.disabled = true;
   elements.drawerRefreshButton.disabled = true;
-  await Promise.all([loadThreads({ preserveSelection: true }), refreshHealth()]);
+  await Promise.all([loadThreads({ preserveSelection: true }), refreshHealth(), loadModels()]);
   if (state.selected) await selectThread(state.selected, { silent: true });
   elements.refreshButton.disabled = false;
   elements.drawerRefreshButton.disabled = false;
@@ -1161,8 +1331,11 @@ elements.messageInput.addEventListener("keydown", (event) => {
 elements.composer.addEventListener("submit", sendMessage);
 elements.stopButton.addEventListener("click", stopTurn);
 elements.takeoverButton.addEventListener("click", takeoverConversation);
+elements.modelSelect.addEventListener("change", changeSelectedModel);
+elements.effortSelect.addEventListener("change", changeSelectedEffort);
 elements.newThreadButton.addEventListener("click", openNewThread);
 elements.newThreadForm.addEventListener("submit", createThread);
+elements.newModelSelect.addEventListener("change", () => renderNewModelControls());
 elements.workspaceToggle.addEventListener("click", toggleWorkspaceOptions);
 elements.newCwd.addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -1218,6 +1391,8 @@ document.addEventListener("bridge:languagechange", () => {
   renderThreads();
   renderMessages();
   renderRequests();
+  renderModelControls();
+  renderNewModelControls();
   updateTurnState();
   if (state.selected) {
     elements.chatTitle.textContent = titleOf(state.selected);
@@ -1245,6 +1420,7 @@ if (launchUrl.searchParams.get("action") === "new") {
 }
 Promise.all([
   refreshHealth(),
+  loadModels(),
   loadThreads({ preserveSelection: false }),
   api("/api/requests").then((result) => {
     for (const request of result.data || []) state.requests.set(request.requestId, request);

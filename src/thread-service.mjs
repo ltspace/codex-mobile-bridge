@@ -11,6 +11,7 @@ const APPROVAL_METHODS = new Set([
 const USER_INPUT_METHOD = "item/tool/requestUserInput";
 const THREAD_CLIENTS = new Set(["codex", "openclaw"]);
 const MAX_TAKEOVER_ROLLOUT_TAIL_BYTES = 4 * 1024 * 1024;
+const MODEL_CATALOG_TTL_MS = 60_000;
 const OPENCLAW_PREVIEW_MARKERS = [
   /(?:^|\n)Conversation info:\s*⟦openclaw:ctx⟧/i,
   /(?:^|\n)OpenClaw runtime context for this turn:/i,
@@ -40,6 +41,21 @@ function filterThreadPage(result, client) {
   return {
     ...result,
     [collectionKey]: result[collectionKey].filter((thread) => threadClient(thread) === client),
+  };
+}
+
+function optionalModelSetting(value, maxLength) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string" || !value.trim() || value.trim().length > maxLength) {
+    throw new BridgeError("模型或推理等级无效", { status: 400, code: "invalid_model_settings" });
+  }
+  return value.trim();
+}
+
+function modelSettings(input = {}) {
+  return {
+    model: optionalModelSetting(input.model, 200),
+    effort: optionalModelSetting(input.effort, 64),
   };
 }
 
@@ -151,6 +167,7 @@ export class ThreadService {
     this.serverRequests = new Map();
     this.threadListCache = new Map();
     this.threadListInflight = new Map();
+    this.modelCatalogCache = null;
 
     client.on("notification", (message) => this.#notification(message));
     client.on("serverRequest", (message) => this.#serverRequest(message));
@@ -159,6 +176,7 @@ export class ThreadService {
         this.activeTurns.clear();
         this.serverRequests.clear();
         this.loadedThreads.clear();
+        this.modelCatalogCache = null;
       } else if (!snapshot.degraded) {
         this.#drainAllQueues();
       }
@@ -207,6 +225,18 @@ export class ThreadService {
       return filterThreadPage(value, client);
     } finally {
       this.threadListInflight.delete(cacheKey);
+    }
+  }
+
+  async models() {
+    if (this.modelCatalogCache?.expiresAt > Date.now()) return this.modelCatalogCache.value;
+    try {
+      const result = await this.client.request("model/list", { limit: 100 });
+      const value = { data: Array.isArray(result?.data) ? result.data : [] };
+      this.modelCatalogCache = { value, expiresAt: Date.now() + MODEL_CATALOG_TTL_MS };
+      return value;
+    } catch (error) {
+      throw rpcFailure(error);
     }
   }
 
@@ -274,7 +304,7 @@ export class ThreadService {
     return await persistedRolloutState(summary.path);
   }
 
-  async createThread({ cwd, ephemeral = false }) {
+  async createThread({ cwd, ephemeral = false, model = null, effort = null }) {
     if (typeof cwd !== "string" || !cwd.trim() || cwd.length > 1024 || !isAbsolute(cwd.trim())) {
       throw new BridgeError("请选择一个有效的绝对目录", { status: 400, code: "invalid_cwd" });
     }
@@ -285,6 +315,7 @@ export class ThreadService {
       throw new BridgeError("目录不存在或无法访问", { status: 400, code: "cwd_unavailable" });
     }
 
+    const settings = modelSettings({ model, effort });
     try {
       const result = await this.client.request("thread/start", {
         cwd: resolvedCwd,
@@ -292,11 +323,21 @@ export class ThreadService {
         sandbox: this.sandboxMode,
         ephemeral: ephemeral === true,
         threadSource: "codex_mobile_bridge",
+        ...(settings.model ? { model: settings.model } : {}),
       });
       const thread = result.thread || result;
       if (thread?.id) {
         this.stateStore.addDraft(thread.id);
         this.loadedThreads.add(thread.id);
+        if (settings.model || settings.effort) {
+          await this.client.request("thread/settings/update", {
+            threadId: thread.id,
+            ...(settings.model ? { model: settings.model } : {}),
+            ...(settings.effort ? { effort: settings.effort } : {}),
+          });
+          thread.model = settings.model || thread.model;
+          thread.reasoningEffort = settings.effort || thread.reasoningEffort;
+        }
       }
       this.#invalidateThreadList();
       return result;
@@ -310,6 +351,30 @@ export class ThreadService {
       return await this.client.request("thread/read", { threadId, includeTurns: false });
     } catch (error) {
       throw rpcFailure(error);
+    }
+  }
+
+  async updateSettings(threadId, body = {}) {
+    const settings = modelSettings(body);
+    if (!settings.model && !settings.effort) {
+      throw new BridgeError("请选择模型或推理等级", { status: 400, code: "invalid_model_settings" });
+    }
+    await this.#waitForRelease(threadId);
+    const shouldResume = !this.stateStore.hasDraft(threadId) && !this.activeTurns.has(threadId);
+    try {
+      if (shouldResume) await this.client.request("thread/resume", { threadId });
+      this.loadedThreads.add(threadId);
+      await this.client.request("thread/settings/update", {
+        threadId,
+        ...(settings.model ? { model: settings.model } : {}),
+        ...(settings.effort ? { effort: settings.effort } : {}),
+      });
+      this.#invalidateThreadList();
+      return { model: settings.model, reasoningEffort: settings.effort };
+    } catch (error) {
+      throw rpcFailure(error);
+    } finally {
+      if (shouldResume) void this.#releaseThread(threadId);
     }
   }
 
@@ -429,7 +494,7 @@ export class ThreadService {
     throw new BridgeError("工具详情不存在或已过期", { status: 404, code: "item_not_found" });
   }
 
-  async send(threadId, { text, mode = "start", expectedTurnId = null }) {
+  async send(threadId, { text, mode = "start", expectedTurnId = null, model = null, effort = null }) {
     const cleanText = typeof text === "string" ? text.trim() : "";
     if (!cleanText || cleanText.length > 20_000) {
       throw new BridgeError("消息长度必须在 1 到 20,000 字符之间", {
@@ -441,9 +506,10 @@ export class ThreadService {
       throw new BridgeError("不支持的消息发送模式", { status: 400, code: "invalid_send_mode" });
     }
     const input = [{ type: "text", text: cleanText }];
+    const settings = modelSettings({ model, effort });
 
     try {
-      if (mode === "queue") return this.#enqueueMessage(threadId, cleanText, "turn_active");
+      if (mode === "queue") return this.#enqueueMessage(threadId, cleanText, "turn_active", settings);
 
       if (mode === "steer") {
         const activeTurnId = expectedTurnId || this.activeTurns.get(threadId);
@@ -469,10 +535,10 @@ export class ThreadService {
           details: { turnId: activeTurnId },
         });
       }
-      return await this.#startTurn(threadId, input);
+      return await this.#startTurn(threadId, input, settings);
     } catch (error) {
       const failure = rpcFailure(error);
-      if (failure?.code === "thread_in_use") return this.#enqueueMessage(threadId, cleanText, "thread_in_use");
+      if (failure?.code === "thread_in_use") return this.#enqueueMessage(threadId, cleanText, "thread_in_use", settings);
       throw failure;
     }
   }
@@ -616,7 +682,7 @@ export class ThreadService {
     if (pending) await pending;
   }
 
-  async #startTurn(threadId, input) {
+  async #startTurn(threadId, input, settings = {}) {
     await this.#waitForRelease(threadId);
     let resumed = false;
     try {
@@ -630,6 +696,8 @@ export class ThreadService {
         input,
         approvalPolicy: this.approvalPolicy,
         sandboxPolicy: { type: this.#sandboxPolicyType() },
+        ...(settings.model ? { model: settings.model } : {}),
+        ...(settings.effort ? { effort: settings.effort } : {}),
       });
       this.stateStore.removeDraft(threadId);
       this.#invalidateThreadList();
@@ -642,8 +710,8 @@ export class ThreadService {
     }
   }
 
-  #enqueueMessage(threadId, text, reason) {
-    const queued = this.stateStore.enqueueMessage(threadId, text, { reason });
+  #enqueueMessage(threadId, text, reason, settings = {}) {
+    const queued = this.stateStore.enqueueMessage(threadId, text, { reason, ...settings });
     this.eventHub.publish("bridge/messageQueued", {
       threadId,
       queueId: queued.id,
@@ -674,7 +742,10 @@ export class ThreadService {
       this.queueRetryTimers.delete(threadId);
     }
 
-    const drain = this.#startTurn(threadId, [{ type: "text", text: item.text }])
+    const drain = this.#startTurn(threadId, [{ type: "text", text: item.text }], {
+      model: item.model || null,
+      effort: item.effort || null,
+    })
       .then((result) => {
         this.stateStore.removeQueuedMessage(item.id);
         this.queueRetryCounts.delete(threadId);

@@ -110,6 +110,8 @@ after acquiring it, so a scheduled check cannot act on a stale port mid-switch.
 Existing conversation: thread/resume → turn/start → streamed notifications
 New conversation:      thread/start  → persisted pending-first-turn marker
                                      → turn/start → marker removed
+Model catalog:         model/list → model and supported effort selectors
+Model switch:          thread/resume → thread/settings/update → thread/unsubscribe
 Active conversation:                  turn/steer or turn/interrupt
 History:               thread/list (state DB only) → compact thread/turns/list with opaque cursor
 Catch-up:                              latest-page delta from known turn ID
@@ -123,6 +125,9 @@ bounded to 100 entries with a seven-day expiry.
 ## HTTP contract
 
 - Successful endpoints return the matching App Server result.
+- `/api/models` reflects the active App Server model catalog. Model changes use
+  `thread/settings/update`, and each `turn/start` repeats the selected model and
+  effort so delayed queue delivery cannot silently inherit a newer selection.
 - Errors use `{ "error": { "code", "message", "retryable", "details"? } }`.
 - State-changing endpoints require `application/json` and reject browser
   requests marked `Sec-Fetch-Site: cross-site`.

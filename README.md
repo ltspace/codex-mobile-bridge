@@ -62,6 +62,9 @@ Tailscale Serve, and prints the private HTTPS URL to open from your phone.
 
 ## Features
 
+- Choose a model and its supported reasoning level for a new or existing
+  conversation. The picker comes from the active Codex App Server catalog, and
+  queued messages retain the exact model settings selected when they were sent.
 - Switch between Codex and OpenClaw conversation lists, with Codex selected by
   default, then search and open either kind or create a new Codex conversation.
 - Archive the selected idle conversation from the top-bar action menu.

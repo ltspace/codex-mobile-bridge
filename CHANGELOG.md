@@ -4,6 +4,15 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.9.0 - 2026-09-17
+
+### Added
+
+- Add touch-friendly model and reasoning-level selectors for new and existing
+  conversations, populated dynamically through App Server `model/list`.
+- Apply changes immediately with `thread/settings/update` and preserve the
+  selected model and effort with every queued message and `turn/start`.
+
 ## 0.8.4 - 2026-09-04
 
 ### Fixed

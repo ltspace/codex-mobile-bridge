@@ -11,7 +11,7 @@ import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 
-const VERSION = "0.8.4";
+const VERSION = "0.9.0";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -130,6 +130,7 @@ function routeName(method, pathname) {
     "GET /api/events": "events",
     "GET /api/threads": "thread_list",
     "POST /api/threads": "thread_create",
+    "GET /api/models": "model_list",
     "GET /api/workspaces": "workspace_list",
     "GET /api/requests": "request_list",
   };
@@ -141,6 +142,7 @@ function routeName(method, pathname) {
   if (/^\/api\/threads\/[^/]+\/takeover$/.test(pathname)) return method === "GET" ? "takeover_inspect" : "takeover_execute";
   if (/^\/api\/threads\/[^/]+\/turns\/[^/]+\/items\/[^/]+$/.test(pathname)) return "item_detail";
   if (/^\/api\/threads\/[^/]+\/send$/.test(pathname)) return "turn_send";
+  if (/^\/api\/threads\/[^/]+\/settings$/.test(pathname)) return "thread_settings_update";
   if (/^\/api\/threads\/[^/]+\/interrupt$/.test(pathname)) return "turn_interrupt";
   if (/^\/api\/threads\/[^/]+\/archive$/.test(pathname)) return "thread_archive";
   if (/^\/api\/threads\/[^/]+$/.test(pathname)) return "thread_read";
@@ -276,6 +278,11 @@ async function handleApi(request, response, url, id) {
     return true;
   }
 
+  if (url.pathname === "/api/models" && request.method === "GET") {
+    json(response, 200, await threads.models(), id);
+    return true;
+  }
+
   if (url.pathname === "/api/workspaces" && request.method === "GET") {
     json(response, 200, await threads.workspaces(), id);
     return true;
@@ -317,6 +324,12 @@ async function handleApi(request, response, url, id) {
   const sendMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/send$/);
   if (sendMatch && request.method === "POST") {
     json(response, 202, await threads.send(pathId(sendMatch), await readJson(request, MAX_BODY_BYTES)), id);
+    return true;
+  }
+
+  const settingsMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/settings$/);
+  if (settingsMatch && request.method === "PATCH") {
+    json(response, 200, await threads.updateSettings(pathId(settingsMatch), await readJson(request, MAX_BODY_BYTES)), id);
     return true;
   }
 

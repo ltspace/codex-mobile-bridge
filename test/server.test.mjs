@@ -43,6 +43,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
+      FAKE_CODEX_REQUIRE_MODEL_SETTINGS: "1",
       FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-terminal-conflict,thread-notloaded-active-conflict,thread-unknown-conflict",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -65,7 +66,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.version, "0.8.4");
+  assert.equal(health.version, "0.9.0");
   assert.equal(health.uiLanguage, "zh-CN");
   assert.equal(health.appServer.ready, true);
   assert.ok(health.eventStream.instanceId);
@@ -96,6 +97,10 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(manifest.scope, "/");
   assert.equal(manifest.shortcuts[0].url, "/?source=pwa&action=new");
   assert.ok(manifest.icons.some((icon) => icon.purpose === "maskable"));
+
+  const models = await (await fetch(`${baseUrl}/api/models`)).json();
+  assert.equal(models.data[0].model, "gpt-6-astra");
+  assert.deepEqual(models.data[0].supportedReasoningEfforts.map((option) => option.reasoningEffort), ["low", "medium", "high"]);
 
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
@@ -130,23 +135,33 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const crossSite = await fetch(`${baseUrl}/api/threads`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Sec-Fetch-Site": "cross-site" },
-    body: JSON.stringify({ cwd: temporary }),
+    body: JSON.stringify({ cwd: temporary, model: "gpt-6-astra", effort: "high" }),
   });
   assert.equal(crossSite.status, 403);
 
   const createdResponse = await fetch(`${baseUrl}/api/threads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cwd: temporary }),
+    body: JSON.stringify({ cwd: temporary, model: "gpt-6-astra", effort: "high" }),
   });
   assert.equal(createdResponse.status, 201);
   const created = await createdResponse.json();
   assert.equal(created.thread.id, "draft-1");
+  assert.equal(created.thread.model, "gpt-6-astra");
+  assert.equal(created.thread.reasoningEffort, "high");
+
+  const settingsResponse = await fetch(`${baseUrl}/api/threads/draft-1/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "gpt-6-astra", effort: "high" }),
+  });
+  assert.equal(settingsResponse.status, 200);
+  assert.deepEqual(await settingsResponse.json(), { model: "gpt-6-astra", reasoningEffort: "high" });
 
   const sentResponse = await fetch(`${baseUrl}/api/threads/draft-1/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: "test" }),
+    body: JSON.stringify({ text: "test", model: "gpt-6-astra", effort: "high" }),
   });
   assert.equal(sentResponse.status, 202);
   assert.equal((await sentResponse.json()).turn.id, "turn-live-1");
@@ -160,7 +175,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const queuedResponse = await fetch(`${baseUrl}/api/threads/draft-1/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: "follow up", mode: "queue" }),
+    body: JSON.stringify({ text: "follow up", mode: "queue", model: "gpt-6-astra", effort: "high" }),
   });
   assert.equal(queuedResponse.status, 202);
   const queued = await queuedResponse.json();
@@ -172,6 +187,8 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(activeQueue.data.length, 1);
   assert.equal(activeQueue.data[0].id, queued.queueId);
   assert.equal(activeQueue.data[0].text, "follow up");
+  assert.equal(activeQueue.data[0].model, "gpt-6-astra");
+  assert.equal(activeQueue.data[0].effort, "high");
 
   const conflictResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/send`, {
     method: "POST",
@@ -300,6 +317,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.ok(metrics.rpc.byMethod["thread/list"] >= 1);
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.8.4"));
+  assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.9.0"));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });
