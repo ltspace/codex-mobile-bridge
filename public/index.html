@@ -99,7 +99,13 @@
             <strong id="chatTitle" data-i18n="threads.select">Select a Codex conversation</strong>
             <span id="chatMeta" data-i18n="threads.selectHelp">Open one from the list or create a new one</span>
           </div>
-          <div id="turnState" class="turn-state idle"><span></span><b data-i18n="turn.idle">Idle</b></div>
+          <div class="chat-header-actions">
+            <button id="modelSettingsButton" class="model-settings-button" type="button" aria-label="Model settings" data-i18n-aria-label="model.settings" aria-expanded="false" aria-controls="modelSettingsModal" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"></path></svg>
+              <span id="modelSettingsSummary" class="model-settings-summary" data-i18n="model.settings">Model settings</span>
+            </button>
+            <div id="turnState" class="turn-state idle"><span></span><b data-i18n="turn.idle">Idle</b></div>
+          </div>
         </section>
 
         <div id="banner" class="banner hidden" role="status">
@@ -119,11 +125,6 @@
           <div id="takeoverBar" class="takeover-bar hidden" role="status">
             <div><strong data-i18n="takeover.title">Conversation held on desktop</strong><span data-i18n="takeover.description">A queued message is waiting for the desktop Codex writer.</span></div>
             <button id="takeoverButton" class="takeover-button" type="button" data-i18n="actions.takeover">Take over</button>
-          </div>
-          <div id="modelControls" class="model-controls" role="group" aria-label="Model settings" data-i18n-aria-label="model.settings">
-            <label><span data-i18n="model.label">Model</span><select id="modelSelect" aria-label="Model" data-i18n-aria-label="model.label" disabled></select></label>
-            <label><span data-i18n="model.effort">Reasoning</span><select id="effortSelect" aria-label="Reasoning level" data-i18n-aria-label="model.effort" disabled></select></label>
-            <small data-i18n="model.appliesNext">Applies to the next turn</small>
           </div>
           <div id="composerHint" class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
           <form id="composer" class="composer">
@@ -161,6 +162,19 @@
         <button id="createThreadButton" class="primary" type="submit" data-i18n="actions.create">Create conversation</button>
       </div>
     </form>
+  </div>
+
+  <div id="modelSettingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modelSettingsTitle">
+    <section class="modal-card model-settings-card">
+      <div class="modal-heading">
+        <div><h2 id="modelSettingsTitle" data-i18n="model.settings">Model settings</h2><p data-i18n="model.appliesNext">Applies to the next turn</p></div>
+        <button id="closeModelSettings" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button>
+      </div>
+      <div id="modelControls" class="model-controls" role="group" aria-label="Model settings" data-i18n-aria-label="model.settings">
+        <label class="field"><span data-i18n="model.label">Model</span><select id="modelSelect" aria-label="Model" data-i18n-aria-label="model.label" disabled></select></label>
+        <label class="field"><span data-i18n="model.effort">Reasoning</span><select id="effortSelect" aria-label="Reasoning level" data-i18n-aria-label="model.effort" disabled></select></label>
+      </div>
+    </section>
   </div>
 
   <div id="connectionModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="connectionTitle">

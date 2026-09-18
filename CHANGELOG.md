@@ -4,6 +4,14 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.9.1 - 2026-09-17
+
+### Changed
+
+- Move the existing-conversation model and reasoning selectors into a compact
+  conversation-header dialog so they no longer consume persistent composer
+  space on mobile.
+
 ## 0.9.0 - 2026-09-17
 
 ### Added

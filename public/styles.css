@@ -267,6 +267,11 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .chat-identity { min-width: 0; flex: 1; display: grid; }
 .chat-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-identity span { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-actions { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 10px; }
+.model-settings-button { min-width: 40px; max-width: 220px; padding: 7px 9px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.model-settings-button:not(:disabled):hover { border-color: var(--line-strong); color: var(--text); }
+.model-settings-button svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.model-settings-summary { min-width: 0; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .turn-state { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .turn-state span { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); }
 .turn-state.running { color: var(--accent); }
@@ -392,12 +397,9 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .request-question input[type="text"], .request-question input[type="password"] { width: 100%; padding: 9px 10px; border: 1px solid var(--request-border); border-radius: 9px; background: var(--request-input-bg); }
 
 .composer-wrap { border-top: 1px solid var(--line); background: var(--composer-bg); padding-bottom: env(safe-area-inset-bottom); }
-.model-controls { max-width: 880px; margin: 7px auto 0; padding: 0 12px; display: flex; align-items: end; gap: 8px; }
-.model-controls label { min-width: 0; display: grid; gap: 3px; }
-.model-controls label:first-child { flex: 1 1 62%; }
-.model-controls label:nth-child(2) { flex: 1 1 38%; }
-.model-controls span { color: var(--subtle); font-size: 10px; }
-.model-controls small { align-self: center; color: var(--subtle); font-size: 10px; white-space: nowrap; }
+.model-settings-card { width: min(430px, 100%); }
+.model-controls { margin-top: 4px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .65fr); gap: 10px; }
+.model-controls label { min-width: 0; }
 .model-controls select,
 .model-fields select { width: 100%; min-height: 38px; min-width: 0; padding: 7px 28px 7px 9px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); color: var(--text); }
 .model-controls select:focus,
@@ -465,6 +467,7 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
   body.drawer-open .sidebar { transform: translateX(0); box-shadow: 14px 0 40px var(--drawer-shadow); }
   .drawer-backdrop { position: fixed; z-index: 19; inset: var(--topbar-height) 0 0; border: 0; border-radius: 0; background: var(--drawer-overlay); }
   .chat-header { min-height: 57px; padding: 8px 12px; }
+  .chat-header-actions { gap: 8px; }
   .chat-identity strong { font-size: 14px; }
   .chat { width: 100vw; overflow: hidden; }
   .messages { width: 100%; padding: 15px 11px 24px; gap: 11px; }
@@ -475,8 +478,6 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
   .requests { padding-inline: 9px; }
   .takeover-bar { margin-inline: 10px; }
   .composer-hint { display: none; }
-  .model-controls { padding-inline: 9px; }
-  .model-controls small { display: none; }
   .composer { width: 100%; min-width: 0; padding: 9px 9px 10px; gap: 6px; }
   .composer textarea { width: 0; flex: 1 1 0; }
   .send, .stop { padding-inline: 12px; }
@@ -491,8 +492,10 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
   #languageButton,
   #newThreadButton,
   #refreshButton { display: none; }
-  .model-controls { gap: 6px; }
-  .model-controls select { min-height: 40px; font-size: 12px; }
+  .model-settings-button { width: 40px; flex: 0 0 40px; padding: 7px; justify-content: center; }
+  .model-settings-summary { display: none; }
+  .model-controls { grid-template-columns: 1fr; gap: 0; }
+  .model-controls select { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

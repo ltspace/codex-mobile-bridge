@@ -252,6 +252,13 @@ function renderModelControls() {
   const disabled = !state.selected || state.modelsLoading || !state.models.length || state.settingsSaving;
   elements.modelSelect.disabled = disabled;
   elements.effortSelect.disabled = disabled || !efforts.length;
+  elements.modelSettingsButton.disabled = disabled;
+  const modelLabel = catalogOptions.find((option) => option.value === elements.modelSelect.value)?.label || t("model.settings");
+  const effort = elements.effortSelect.value ? effortLabel(elements.effortSelect.value) : "";
+  const summary = effort ? `${modelLabel} · ${effort}` : modelLabel;
+  elements.modelSettingsSummary.textContent = summary;
+  elements.modelSettingsButton.title = `${t("model.settings")}: ${summary}`;
+  elements.modelSettingsButton.setAttribute("aria-label", `${t("model.settings")}: ${summary}`);
 }
 
 function renderNewModelControls({ preserve = true } = {}) {
@@ -336,6 +343,20 @@ function changeSelectedEffort() {
   if (!state.selected) return;
   const previous = { model: state.selected.model || null, effort: state.selected.reasoningEffort || null };
   void saveModelSettings(elements.modelSelect.value, elements.effortSelect.value, previous);
+}
+
+function openModelSettings() {
+  if (elements.modelSettingsButton.disabled) return;
+  elements.modelSettingsModal.classList.remove("hidden");
+  elements.modelSettingsButton.setAttribute("aria-expanded", "true");
+  elements.modelSelect.focus();
+}
+
+function closeModelSettings({ restoreFocus = false } = {}) {
+  const wasOpen = !elements.modelSettingsModal.classList.contains("hidden");
+  elements.modelSettingsModal.classList.add("hidden");
+  elements.modelSettingsButton.setAttribute("aria-expanded", "false");
+  if (restoreFocus && wasOpen) elements.modelSettingsButton.focus();
 }
 
 const pwaController = createPwaController();
@@ -816,6 +837,7 @@ function clearSelectedThread() {
   state.busy = false;
   state.externalWriter = false;
   state.streaming.clear();
+  closeModelSettings();
   renderModelControls();
   elements.chatTitle.textContent = t(state.threadClient === "openclaw" ? "threads.selectOpenClaw" : "threads.select");
   elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
@@ -1331,6 +1353,9 @@ elements.messageInput.addEventListener("keydown", (event) => {
 elements.composer.addEventListener("submit", sendMessage);
 elements.stopButton.addEventListener("click", stopTurn);
 elements.takeoverButton.addEventListener("click", takeoverConversation);
+elements.modelSettingsButton.addEventListener("click", openModelSettings);
+elements.closeModelSettings.addEventListener("click", () => closeModelSettings({ restoreFocus: true }));
+elements.modelSettingsModal.addEventListener("click", (event) => { if (event.target === elements.modelSettingsModal) closeModelSettings({ restoreFocus: true }); });
 elements.modelSelect.addEventListener("change", changeSelectedModel);
 elements.effortSelect.addEventListener("change", changeSelectedEffort);
 elements.newThreadButton.addEventListener("click", openNewThread);
@@ -1380,6 +1405,10 @@ compactActionLayout.addEventListener("change", (event) => {
   if (!event.matches) closeActionDrawer();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !elements.modelSettingsModal.classList.contains("hidden")) {
+    closeModelSettings({ restoreFocus: true });
+    return;
+  }
   if (event.key === "Escape" && document.body.classList.contains("action-drawer-open")) {
     closeActionDrawer({ restoreFocus: true });
   }
