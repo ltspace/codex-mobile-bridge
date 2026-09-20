@@ -252,7 +252,7 @@ function renderModelControls() {
   const disabled = !state.selected || state.modelsLoading || !state.models.length || state.settingsSaving;
   elements.modelSelect.disabled = disabled;
   elements.effortSelect.disabled = disabled || !efforts.length;
-  elements.modelSettingsButton.disabled = disabled;
+  elements.modelSettingsButton.disabled = !state.selected;
   const modelLabel = catalogOptions.find((option) => option.value === elements.modelSelect.value)?.label || t("model.settings");
   const effort = elements.effortSelect.value ? effortLabel(elements.effortSelect.value) : "";
   const summary = effort ? `${modelLabel} · ${effort}` : modelLabel;
@@ -277,6 +277,7 @@ function renderNewModelControls({ preserve = true } = {}) {
 }
 
 async function loadModels() {
+  if (state.modelsLoading) return;
   state.modelsLoading = true;
   renderModelControls();
   renderNewModelControls();
@@ -349,7 +350,9 @@ function openModelSettings() {
   if (elements.modelSettingsButton.disabled) return;
   elements.modelSettingsModal.classList.remove("hidden");
   elements.modelSettingsButton.setAttribute("aria-expanded", "true");
-  elements.modelSelect.focus();
+  if (!state.models.length) void loadModels();
+  if (elements.modelSelect.disabled) elements.closeModelSettings.focus();
+  else elements.modelSelect.focus();
 }
 
 function closeModelSettings({ restoreFocus = false } = {}) {
