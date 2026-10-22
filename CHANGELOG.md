@@ -4,6 +4,21 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Batch Windows takeover lock inspection, exclude coordination files, and share
+  concurrent inspections without retaining stale ownership evidence.
+- Give takeover state lookup, native probes and HTTP requests separate bounded
+  timeouts; preserve local failure diagnostics and distinguish permission errors.
+- Confirm takeover only after the selected queued message receives a turn ID.
+  Keep shared-process protection and test native Windows handles and HTTP delivery.
+
+- Add opt-in background Codex CLI stable updates through the existing watchdog,
+  with isolated version directories, bounded installation, idle deferral and status logs.
+- Verify model discovery and HTTPS routing during blue-green deployment; restore
+  routing and configuration if switching fails, including partially applied Serve commands.
+- Freeze new operations during cutover and keep standby/retired instances from
+  draining queues or accepting writes. Share lifecycle locks across Windows sessions.
+- Refresh the model catalog on reconnect and when opening a new conversation.
+
 ## 0.9.1 - 2026-09-17
 
 ### Changed

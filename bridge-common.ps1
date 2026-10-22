@@ -175,7 +175,7 @@ function Rotate-BridgeLog([string]$Path, [int]$Keep = 3) {
 }
 
 function Enter-BridgeLifecycleLock([int]$TimeoutMilliseconds = 30000) {
-    $Mutex = [Threading.Mutex]::new($false, 'Local\CodexMobileBridgeLifecycle')
+    $Mutex = [Threading.Mutex]::new($false, 'Global\CodexMobileBridgeLifecycle')
     try {
         if (-not $Mutex.WaitOne($TimeoutMilliseconds)) {
             $Mutex.Dispose()

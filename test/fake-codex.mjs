@@ -1,5 +1,6 @@
 import readline from "node:readline";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 
 const reader = readline.createInterface({ input: process.stdin });
 let draftId = 0;
@@ -97,7 +98,8 @@ reader.on("line", (line) => {
     threadSettings.set(threadId, { model: params.model || "gpt-6-astra", effort: "medium" });
     send({ id, result: { thread: { id: threadId, name: null, cwd: params.cwd, model: params.model || "gpt-6-astra", reasoningEffort: "medium", status: { type: "idle" } } } });
   } else if (method === "thread/resume") {
-    if (conflictThreads.has(params.threadId)) {
+    const releasedFixture = params.threadId === "thread-conflict" && process.env.FAKE_CODEX_CONFLICT_RELEASE_FILE && existsSync(process.env.FAKE_CODEX_CONFLICT_RELEASE_FILE);
+    if (conflictThreads.has(params.threadId) && !releasedFixture) {
       send({ id, error: { code: -32600, message: "thread-store conflict: thread already has an active writer" } });
       return;
     }

@@ -6,7 +6,7 @@ $StateDirectory = Join-Path $PSScriptRoot 'state'
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
 $LogPath = Join-Path $LogDirectory 'watchdog.log'
 $StatePath = Join-Path $StateDirectory 'watchdog-state.json'
-$Mutex = [Threading.Mutex]::new($false, 'Local\CodexMobileBridgeWatchdogCheck')
+$Mutex = [Threading.Mutex]::new($false, 'Global\CodexMobileBridgeWatchdogCheck')
 $LifecycleLock = $null
 $Config = $null
 $FailureThreshold = 3
@@ -54,6 +54,16 @@ try {
     if (-not $Mutex.WaitOne(0)) { exit 0 }
     $LifecycleLock = Enter-BridgeLifecycleLock
     $Config = Get-BridgeConfig
+    $Local = Read-BridgeLocalConfig
+    if (Get-BridgeConfigValue $Local 'autoUpdateEnabled') {
+        $UpdaterStatePath = Join-Path $Config.StateDir 'auto-update.json'
+        $UpdaterState = if (Test-Path -LiteralPath $UpdaterStatePath) { try { Get-Content -LiteralPath $UpdaterStatePath -Raw | ConvertFrom-Json } catch { $null } } else { $null }
+        if ((Test-Path -LiteralPath (Join-Path $Config.StateDir 'auto-update-request')) -or -not $UpdaterState -or -not $UpdaterState.nextCheckAt -or [datetime]::Parse($UpdaterState.nextCheckAt).ToUniversalTime() -le (Get-Date).ToUniversalTime()) {
+            $Shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $Updater = Join-Path $Config.Root 'auto-update.ps1'
+            Start-Process -FilePath $Shell -ArgumentList "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Updater`"" -WorkingDirectory $Config.Root -WindowStyle Hidden | Out-Null
+        }
+    }
     if ((Test-Path -LiteralPath $LogPath) -and (Get-Item -LiteralPath $LogPath).Length -gt 1MB) {
         Rotate-BridgeLog $LogPath 3
     }

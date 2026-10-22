@@ -23,6 +23,7 @@ function normalizeOwner(owner) {
     executablePath: typeof owner.executablePath === "string" ? owner.executablePath : "",
     commandLine: typeof owner.commandLine === "string" ? owner.commandLine : "",
     parentPid: Number(owner.parentPid) || null,
+    sharedOwner: owner.sharedOwner === true,
     ancestorPids: Array.isArray(owner.ancestorPids)
       ? owner.ancestorPids.map(Number).filter((value) => Number.isInteger(value) && value > 0)
       : [],
@@ -59,7 +60,7 @@ async function powershellProbe(lockPath, {
     "-LockPath", lockPath,
   ], {
     windowsHide: true,
-    timeout: 12_000,
+    timeout: 15_000,
     maxBuffer: 64 * 1024,
   });
   const parsed = JSON.parse(String(stdout || "{}").trim() || "{}");
@@ -83,7 +84,7 @@ async function powershellTerminate(owner, lockPath, {
       "-ExpectedStartedAt", owner.startedAt,
     ], {
       windowsHide: true,
-      timeout: 15_000,
+      timeout: 20_000,
       maxBuffer: 64 * 1024,
     });
     const parsed = JSON.parse(String(stdout || "{}").trim() || "{}");
@@ -114,8 +115,25 @@ function publicOwner(owner) {
     startedAt: owner.startedAt,
     client: "vscode",
     application: "Codex App Server",
-    lockedThreadCount: owner.threadIds.length,
+    lockedThreadCount: owner.sharedOwner ? Math.max(2, owner.threadIds.length) : owner.threadIds.length,
+    ...(owner.sharedOwner ? { lockedThreadCountIsLowerBound: true } : {}),
   };
+}
+
+export function takeoverFailure(error, phase) {
+  if (error instanceof BridgeError) return error;
+  const stderr = String(error?.stderr || "").slice(-2000);
+  const timeout = error?.code === "ETIMEDOUT" || (error?.killed === true && Boolean(error?.signal));
+  const denied = error?.code === "EACCES" || /access.*denied|拒绝访问|UnauthorizedAccess|AccessDenied/i.test(stderr);
+  const failure = new BridgeError(timeout ? "检查或释放持锁进程超时，请重试" : denied ? "当前运行环境无权检查或停止桌面进程" : "无法检查或释放桌面进程，具体原因已记录", {
+    status: 503,
+    code: timeout ? "takeover_probe_timeout" : denied ? "takeover_access_denied" : "takeover_failed",
+    retryable: !denied,
+    details: { phase },
+  });
+  // Detailed diagnostics stay in local logs, not in browser responses.
+  failure.diagnostic = { phase, exitCode: error?.code, signal: error?.signal, killed: error?.killed, message: String(error?.message || error).slice(0, 500), stderr };
+  return failure;
 }
 
 export class ThreadTakeoverService {
@@ -134,21 +152,26 @@ export class ThreadTakeoverService {
     this.protectedPids = protectedPids;
     this.secret = secret;
     this.pending = new Set();
+    this.inspections = new Map();
   }
 
-  async inspect(threadId) {
+  inspect(threadId) {
+    const existing = this.inspections.get(threadId);
+    if (existing) return existing;
+    const inspection = this.#inspect(threadId).finally(() => this.inspections.delete(threadId));
+    this.inspections.set(threadId, inspection);
+    return inspection;
+  }
+
+  async #inspect(threadId) {
     this.#validateThreadId(threadId);
     if (this.platform !== "win32") return { available: false, reason: "unsupported_platform", owner: null };
 
     let owners;
     try {
       owners = await this.#owners(threadId);
-    } catch {
-      throw new BridgeError("无法检查桌面端持锁进程", {
-        status: 503,
-        code: "takeover_failed",
-        retryable: true,
-      });
+    } catch (error) {
+      throw takeoverFailure(error, "inspect");
     }
     if (owners.length === 0) return { available: false, reason: "owner_missing", owner: null };
     if (owners.length !== 1) return { available: false, reason: "multiple_owners", owner: null };
@@ -157,10 +180,13 @@ export class ThreadTakeoverService {
     if (isProtectedOwner(owner, this.protectedPids())) {
       return { available: false, reason: "protected_owner", owner: { ...publicOwner(owner), client: "bridge" } };
     }
+    if (!owner.executablePath || !owner.commandLine) {
+      return { available: false, reason: "owner_unverifiable", owner: { ...publicOwner(owner), client: "unknown" } };
+    }
     if (!isEligibleVsCodeOwner(owner)) {
       return { available: false, reason: "unsupported_owner", owner: { ...publicOwner(owner), client: "other" } };
     }
-    if (owner.threadIds.length !== 1 || owner.threadIds[0] !== threadId) {
+    if (owner.sharedOwner || owner.threadIds.length !== 1 || owner.threadIds[0] !== threadId) {
       return { available: false, reason: "shared_owner", owner: publicOwner(owner) };
     }
     return {
@@ -206,7 +232,7 @@ export class ThreadTakeoverService {
           retryable: true,
         });
       }
-      if (currentOwner.threadIds.length !== 1 || currentOwner.threadIds[0] !== threadId) {
+      if (currentOwner.sharedOwner || currentOwner.threadIds.length !== 1 || currentOwner.threadIds[0] !== threadId) {
         throw new BridgeError("该桌面 Codex 进程同时持有其他会话，不能安全停止", {
           status: 409,
           code: "takeover_shared_owner",
@@ -216,12 +242,7 @@ export class ThreadTakeoverService {
       await this.terminate(currentOwner, this.#lockPath(threadId));
       return { ok: true, terminated: true, owner: publicOwner(currentOwner) };
     } catch (error) {
-      if (error instanceof BridgeError) throw error;
-      throw new BridgeError("无法检查或停止桌面端持锁进程", {
-        status: 503,
-        code: "takeover_failed",
-        retryable: true,
-      });
+      throw takeoverFailure(error, "release");
     } finally {
       this.pending.delete(threadId);
     }

@@ -74,6 +74,9 @@ Serve，并输出供手机打开的私有 HTTPS 地址。
   上反查准确持锁者，只停止已验证且仅持有这一条空闲会话的 VS Code Codex
   App Server；活动会话、同时持有其他会话的 writer、Bridge 自身、OpenClaw
   或归属不明的进程都会被拒绝。
+- 接管使用批量查锁判断共享进程，并区分检查超时、权限不足和共享占用。
+  只有原排队消息收到任务启动回执后才提示成功；停止桌面进程本身不算成功。
+  超时未确认时请查看队列状态，不要重复发送消息。底层错误保留在本机日志中。
 - 通过 SSE 实时接收回复，支持心跳、有限事件重放和重连后的增量同步。
 - 通过 App Server 状态数据库读取会话列表；RPC 超时后进入有限恢复等待，避免
   手机端重复刷新继续堆积慢请求。
@@ -154,12 +157,43 @@ Service Worker 只缓存静态界面文件。页面导航会先给网络一个�
 | `.\stop.ps1` | 停止 Bridge 并关闭对应的 Serve 规则。 |
 | `.\install-watchdog.ps1` | 安装或更新自动恢复任务。 |
 | `.\uninstall-watchdog.ps1` | 删除自动恢复任务。 |
+| `.\install-auto-update.ps1 -Bootstrap` | 首次启用 CLI 稳定版自动升级，下一次 watchdog 检查时执行。 |
+| `.\auto-update.ps1 -CheckOnly -ForceCheck` | 立即检查 npm 稳定版，不安装或切换。 |
+| `.\auto-update.ps1 -ForceCheck` | 立即运行一次已启用的升级流程。 |
+| `.\install-auto-update.ps1 -Disable` | 停止后续自动升级，保留当前版本。 |
 
 安装 watchdog 时会请求一次管理员确认，以便任务计划程序使用当前用户的
 非交互式 S4U 令牌执行分钟级检查。它不会保存密码，也不会反复弹出控制台窗口。
 
 Bridge 健康且没有任务运行时，计划升级建议使用
 `bluegreen-restart.ps1`。存在活动任务时，该脚本默认拒绝切换。
+
+### CLI 自动升级
+
+自动升级依赖已安装的 watchdog，不另建计划任务。每 15 分钟检查公共 npm
+registry 的 `@openai/codex` **latest** 标签，只接受更高的 `x.y.z` 正式版本，
+不安装 alpha/beta，也不降级。机器离线或关机时不能检查，上线后由 watchdog 补查。
+
+版本安装到 `state/codex-runtimes/<version>/`，不会覆盖全局 npm 或 VS Code 自带的
+Codex。安装启用 TLS 校验并禁用 npm 生命周期脚本；旧运行目录保留用于回退。
+安装超时上限 5 分钟；失败会记日志，并等待 6 小时后重试，可用 `-ForceCheck` 提前重试。
+
+有活动任务、排队消息、审批、归档或未完成请求时，升级等待，每分钟重试。
+切换期间暂缓接受新操作；候选实例验证模型目录和会话列表，再切换 Tailscale
+Serve，核对 HTTPS 实际实例，最后停止旧进程并恢复写入。验证失败会恢复原路由
+和配置。若回退本身失败，则保留两个进程供排查，错误记录在日志中。
+这组检查不包含付费模型推理或手机端业务验收。
+
+首次 `-Bootstrap` 迁移还没有暂停写入机制的旧 bridge 时，要求没有连接中的
+手机页面；迁移完成后自动清除首次迁移标志。后续升级自动使用暂停写入机制。
+切换可能使 SSE 短暂重连；正在执行的任务不会被自动中断。新前端在重连或打开
+新建会话时刷新模型目录；旧 PWA 页面首次需关闭后重新打开以更新静态资源。
+
+`.\status.ps1` 显示开关、实际 CLI 路径和最近升级结果。详细记录位于
+`logs/auto-update.log`，状态位于 `state/auto-update.json`。如需手动回退，先禁用
+自动升级，再在 bridge 空闲时运行
+`bluegreen-restart.ps1 -CodexCommand '<旧版本的 codex.cmd 完整路径>'`。
+由非交互 watchdog 启动的实例需在有权管理该进程的同一运行环境下操作。
 
 ## 配置
 

@@ -115,6 +115,7 @@ function syncSnapshot(snapshot) {
   renderThreads();
   updateComposer();
   const resume = snapshot.eventStream?.resume;
+  if (previousInstanceId && snapshot.eventStream?.instanceId && previousInstanceId !== snapshot.eventStream.instanceId) void loadModels();
   if (state.selected && (resume?.gap || (previousInstanceId && previousInstanceId !== snapshot.eventStream?.instanceId))) {
     void syncSelectedThread();
   }
@@ -780,7 +781,7 @@ async function takeoverConversation() {
   state.takingOver = true;
   updateComposer();
   try {
-    const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { timeoutMs: 12_000 });
+    const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { timeoutMs: 35_000 });
     if (!preflight.available && preflight.reason !== "owner_missing") {
       showBanner(t(`takeover.${preflight.reason}`, {
         count: preflight.owner?.lockedThreadCount || 0,
@@ -792,15 +793,15 @@ async function takeoverConversation() {
       pid: preflight.owner?.pid || t("status.unknown"),
     }))) return;
 
-    await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, {
+    const result = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, {
       method: "POST",
       body: JSON.stringify({ token: preflight.token || null, owner: preflight.owner || null }),
-      timeoutMs: 20_000,
+      timeoutMs: 75_000,
     });
+    if (!result.acquired || !result.turnId) throw new Error(t("errors.takeover_not_acquired"));
     state.externalWriter = false;
     hideBanner();
-    toast(preflight.reason === "owner_missing" ? t("takeover.owner_missing") : t("toast.takeoverComplete"));
-    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    toast(t("toast.takeoverComplete"));
     await syncSelectedThread();
   } catch (error) {
     const info = errorInfo(error);
@@ -1174,6 +1175,7 @@ function moveWorkspaceSelection(offset) {
 }
 
 async function openNewThread() {
+  void loadModels();
   elements.newThreadModal.classList.remove("hidden");
   setWorkspaceOptionsOpen(false);
   elements.newThreadHint.className = "form-hint";

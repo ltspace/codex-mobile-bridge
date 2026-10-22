@@ -26,7 +26,7 @@ export function resolveSpawnSpec(command, args, platform = process.platform) {
 export class CodexClient extends EventEmitter {
   constructor({
     command,
-    args = ["app-server", "--stdio"],
+    args = ["app-server"],
     cwd,
     env = process.env,
     logger = console,
@@ -72,6 +72,7 @@ export class CodexClient extends EventEmitter {
     return {
       status: this.status,
       ready: this.ready,
+      userAgent: this.userAgent || null,
       pid: this.child?.pid || null,
       restartCount: this.restartCount,
       restartAttempts: this.restartAttempts,
@@ -185,10 +186,11 @@ export class CodexClient extends EventEmitter {
     this.reader.on("line", (line) => this.#handleLine(line));
 
     try {
-      await this.#requestRaw("initialize", {
+      const initialized = await this.#requestRaw("initialize", {
         clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.9.1" },
         capabilities: { experimentalApi: true },
       }, this.initializeTimeoutMs);
+      this.userAgent = initialized?.userAgent || null;
       this.#write({ method: "initialized", params: {} });
       this.restartAttempts = 0;
       this.lastReadyAt = new Date().toISOString();

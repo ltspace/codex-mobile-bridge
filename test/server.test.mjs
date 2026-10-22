@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -44,6 +44,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
       FAKE_CODEX_REQUIRE_MODEL_SETTINGS: "1",
+      FAKE_CODEX_CONFLICT_RELEASE_FILE: join(temporary, "release-writer"),
       FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-terminal-conflict,thread-notloaded-active-conflict,thread-unknown-conflict",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -53,6 +54,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const stderr = [];
   child.stdout.on("data", (chunk) => stdout.push(String(chunk)));
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
+  child.on("exit", (code) => { if (code) context.diagnostic(stderr.join("").slice(-6000)); });
   context.after(async () => {
     if (child.exitCode == null) {
       child.kill("SIGTERM");
@@ -62,6 +64,24 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
 
   await waitForReady(baseUrl, child);
+
+  // A standby candidate may answer probes but cannot accept conversation writes.
+  const configPath = join(temporary, "config.json");
+  const leasePath = join(temporary, "deployment-lease.json");
+  await writeFile(configPath, JSON.stringify({ localPort: port + 1 }));
+  const standbyWrite = await fetch(`${baseUrl}/api/threads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd: temporary }) });
+  assert.equal(standbyWrite.status, 503);
+  assert.equal((await standbyWrite.json()).error.code, "bridge_updating");
+  assert.equal((await fetch(`${baseUrl}/api/models`)).status, 200);
+  await writeFile(configPath, JSON.stringify({ localPort: port }));
+  await writeFile(leasePath, JSON.stringify({ expiresAt: new Date(Date.now() + 60_000).toISOString() }));
+  const drainedRead = await fetch(`${baseUrl}/api/threads/thread-1/queue`);
+  assert.equal(drainedRead.status, 503);
+  const drainedHealth = await (await fetch(`${baseUrl}/api/health`)).json();
+  assert.equal(drainedHealth.deployment.draining, true);
+  assert.equal(drainedHealth.deployment.inFlight, 0);
+  await rm(leasePath);
+  assert.equal((await fetch(`${baseUrl}/api/threads/thread-1/queue`)).status, 200);
 
   const healthResponse = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthResponse.status, 200);
@@ -213,6 +233,26 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal((await cancelConflict.json()).remaining, 0);
   assert.equal((await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json()).data.length, 0);
 
+  const retryQueueResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/send`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "verify takeover delivery", model: "gpt-6-astra", effort: "high" }),
+  });
+  const retryQueue = await retryQueueResponse.json();
+  assert.equal(retryQueue.queued, true);
+  const takeoverRequest = fetch(`${baseUrl}/api/threads/thread-conflict/takeover`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: null }),
+  });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  await writeFile(join(temporary, "release-writer"), "released");
+  const confirmedTakeover = await takeoverRequest;
+  assert.equal(confirmedTakeover.status, 200);
+  const confirmation = await confirmedTakeover.json();
+  assert.equal(confirmation.terminated, false);
+  assert.equal(confirmation.acquired, true);
+  assert.equal(confirmation.queueId, retryQueue.queueId);
+  assert.match(confirmation.turnId, /^turn-live-/);
+  assert.equal((await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json()).data.length, 0);
+
   const activeConflictResponse = await fetch(`${baseUrl}/api/threads/thread-active-conflict/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -285,13 +325,13 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   let releasedHealth;
   while (Date.now() < releaseDeadline) {
     releasedHealth = await (await fetch(`${baseUrl}/api/health`)).json();
-    if (releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"] >= 2) break;
+    if (releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"] >= 3) break;
     await new Promise((resolveWait) => setTimeout(resolveWait, 20));
   }
   assert.equal(releasedHealth.activeTurns["draft-1"], undefined);
   assert.equal(releasedHealth.drafts.queuedMessages, 0);
-  assert.equal(releasedHealth.metrics.rpc.byMethod["turn/start"], 2);
-  assert.equal(releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"], 2);
+  assert.equal(releasedHealth.metrics.rpc.byMethod["turn/start"], 3);
+  assert.equal(releasedHealth.metrics.rpc.byMethod["thread/unsubscribe"], 3);
   let archiveFinished = false;
   const archiveRequest = fetch(`${baseUrl}/api/threads/draft-1/archive`, {
     method: "POST",
@@ -318,5 +358,6 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(metrics.rpc.byMethod["thread/archive"], 1);
   const records = stdout.join("").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
   assert.ok(records.some((record) => record.event === "bridge_listening" && record.version === "0.9.1"));
+  assert.ok(records.some((record) => record.event === "thread_takeover" && record.turnId === confirmation.turnId));
   assert.equal(stderr.some((line) => line.includes("initial app-server start failed")), false);
 });

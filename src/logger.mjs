@@ -5,6 +5,7 @@ function errorDetails(error) {
     message: error.message,
     code: error.code,
     stack: error.stack,
+    ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}),
   };
 }
 

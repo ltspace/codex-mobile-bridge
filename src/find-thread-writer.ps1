@@ -81,13 +81,18 @@ public static class CodexBridgeRestartManager {
     private static extern int RmEndSession(uint handle);
 
     public static ProcessInfo[] Find(string path) {
+        return FindMany(new[] { path });
+    }
+
+    public static ProcessInfo[] FindMany(string[] paths) {
+        if (paths.Length == 0) return new ProcessInfo[0];
         uint handle;
         var sessionKey = new StringBuilder(64);
         var result = RmStartSession(out handle, 0, sessionKey);
         if (result != 0) throw new InvalidOperationException("RmStartSession failed: " + result);
 
         try {
-            result = RmRegisterResources(handle, 1, new[] { path }, 0, IntPtr.Zero, 0, null);
+            result = RmRegisterResources(handle, (uint)paths.Length, paths, 0, IntPtr.Zero, 0, null);
             if (result != 0) throw new InvalidOperationException("RmRegisterResources failed: " + result);
 
             uint needed = 0;
@@ -110,23 +115,30 @@ public static class CodexBridgeRestartManager {
 }
 '@
 
-function Get-ThreadIdsOwnedByProcess {
-  param(
-    [Parameter(Mandatory = $true)]
-    [int]$ProcessId,
+$LockPath = [IO.Path]::GetFullPath($LockPath)
+$TargetThreadId = [IO.Path]::GetFileNameWithoutExtension($LockPath)
+if ($TargetThreadId -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$') { throw 'Invalid thread lock name' }
+$TargetOwners = @([CodexBridgeRestartManager]::Find($LockPath))
+if ($TargetOwners.Count -eq 0) {
+  if ($Terminate) { throw 'Expected exactly one lock owner' }
+  @{ owners = @(); terminated = $false } | ConvertTo-Json -Compress
+  exit 0
+}
 
-    [Parameter(Mandatory = $true)]
-    [string]$Directory
-  )
+# One batch answers the safety question: does this PID own ANY other thread?
+# Do not include the shared .coordination.lock or claim an exact thread count.
+$OtherLocks = @(Get-ChildItem -LiteralPath ([IO.Path]::GetDirectoryName($LockPath)) -Filter '*.lock' -File -ErrorAction Stop |
+  Where-Object { $_.FullName -ine $LockPath -and $_.BaseName -match '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$' } |
+  ForEach-Object { $_.FullName })
+$OtherOwnerPids = @{}
+foreach ($OtherOwner in @([CodexBridgeRestartManager]::FindMany([string[]]$OtherLocks))) {
+  $OtherOwnerPids[[int]$OtherOwner.Process.ProcessId] = $true
+}
 
-  $threadIds = @()
-  foreach ($LockFile in @(Get-ChildItem -LiteralPath $Directory -Filter '*.lock' -File -ErrorAction SilentlyContinue)) {
-    $lockOwners = @([CodexBridgeRestartManager]::Find($LockFile.FullName))
-    if (@($lockOwners | Where-Object { [int]$_.Process.ProcessId -eq $ProcessId }).Count -gt 0) {
-      $threadIds += [IO.Path]::GetFileNameWithoutExtension($LockFile.Name)
-    }
-  }
-  return @($threadIds | Sort-Object -Unique)
+# Fetch metadata once instead of a separate WMI query for every ancestor.
+$ProcessById = @{}
+foreach ($Entry in @(Get-CimInstance Win32_Process -ErrorAction Stop)) {
+  $ProcessById[[int]$Entry.ProcessId] = $Entry
 }
 
 function Get-AncestorProcessIds {
@@ -138,7 +150,7 @@ function Get-AncestorProcessIds {
   for ($depth = 0; $depth -lt 32 -and $currentId -gt 0; $depth += 1) {
     if ($seen.ContainsKey($currentId)) { break }
     $seen[$currentId] = $true
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $currentId" -ErrorAction SilentlyContinue
+    $process = $ProcessById[$currentId]
     if (-not $process) { break }
     $parentId = [int]$process.ParentProcessId
     if ($parentId -le 0) { break }
@@ -149,9 +161,10 @@ function Get-AncestorProcessIds {
 }
 
 $owners = @(
-  [CodexBridgeRestartManager]::Find($LockPath) | ForEach-Object {
+  $TargetOwners | ForEach-Object {
     $processId = [int]$_.Process.ProcessId
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+    $process = $ProcessById[$processId]
+    if (-not $process) { throw 'Cannot inspect lock owner process; retry inspection' }
     if ($process) {
       [ordered]@{
         pid = $processId
@@ -160,7 +173,8 @@ $owners = @(
         commandLine = [string]$process.CommandLine
         parentPid = [int]$process.ParentProcessId
         ancestorPids = @(Get-AncestorProcessIds -StartingProcessId $processId)
-        threadIds = @(Get-ThreadIdsOwnedByProcess -ProcessId $processId -Directory ([IO.Path]::GetDirectoryName($LockPath)))
+        threadIds = @($TargetThreadId)
+        sharedOwner = $OtherOwnerPids.ContainsKey($processId)
       }
     }
   }
@@ -179,9 +193,12 @@ if ($Terminate) {
   }
   $targetThreadId = [IO.Path]::GetFileNameWithoutExtension($LockPath)
   $ownedThreadIds = @($owner.threadIds)
-  if ($ownedThreadIds.Count -ne 1 -or $ownedThreadIds[0] -ne $targetThreadId) {
+  if ($owner.sharedOwner -or $ownedThreadIds.Count -ne 1 -or $ownedThreadIds[0] -ne $targetThreadId) {
     throw "Writer owns multiple thread locks"
   }
+  # Recheck identity after the OS lock queries, immediately before termination.
+  $CurrentOwner = Get-CimInstance Win32_Process -Filter "ProcessId = $($owner.pid)" -ErrorAction Stop
+  if (-not $CurrentOwner -or $CurrentOwner.CreationDate.ToUniversalTime().ToString('o') -ne $ExpectedStartedAt) { throw 'Lock owner start time changed' }
   Stop-Process -Id $owner.pid -Force -ErrorAction Stop
   Wait-Process -Id $owner.pid -Timeout 5 -ErrorAction SilentlyContinue
   if (Get-Process -Id $owner.pid -ErrorAction SilentlyContinue) { throw "Lock owner did not exit" }

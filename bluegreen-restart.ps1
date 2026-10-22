@@ -3,11 +3,18 @@ param(
     [ValidateRange(0, 65535)]
     [int]$CandidatePort = 0,
 
-    [switch]$AllowActiveTurn
+    [string]$CodexCommand,
+
+    [string]$ExpectedCodexCommand,
+    [string]$ExpectedCurrentVersion,
+
+    # One-time migration only; automatic updates always require the drain gate.
+    [switch]$AllowLegacySource
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'bridge-common.ps1')
+. (Join-Path $PSScriptRoot 'deployment-common.ps1')
 
 function Select-CandidatePort([int]$CurrentPort, [int]$RequestedPort) {
     $Candidates = if ($RequestedPort) {
@@ -28,22 +35,18 @@ function Get-CandidateHealth([int]$Port, [int]$TimeoutSeconds = 3) {
 }
 
 function Test-CandidateApi([int]$Port) {
+    $Models = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/models" -TimeoutSec 30
+    if (-not $Models.data -or @($Models.data).Count -eq 0) { throw 'Candidate returned an empty model catalog.' }
     $Threads = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads?limit=10" -TimeoutSec 30
-    $Items = @($Threads.data)
-    if ($Items.Count -gt 0 -and $Items[0].id) {
-        # App Server can report an externally owned writer as notLoaded. Avoid a
-        # history probe that may block on that writer while still validating the
-        # App Server list path and the bridge-local queue contract.
-        $ThreadId = [uri]::EscapeDataString([string]$Items[0].id)
-        Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads/$ThreadId/queue" -TimeoutSec 5 | Out-Null
-    }
+    if (-not $Threads.PSObject.Properties['data']) { throw 'Candidate returned an invalid thread list.' }
 }
 
 function Set-ServeTarget([object]$Config, [int]$LocalPort) {
     & $Config.TailscalePath serve --bg --yes --https=$($Config.HttpsPort) "http://127.0.0.1:$LocalPort" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Unable to point Tailscale Serve at port $LocalPort." }
-    $Serve = (& $Config.TailscalePath serve status 2>$null) -join "`n"
-    if (-not ($Serve.Contains(":$($Config.HttpsPort)") -and $Serve.Contains("127.0.0.1:$LocalPort"))) {
+    $Expected = $Config.PSObject.Copy()
+    $Expected.LocalPort = $LocalPort
+    if (-not (Test-BridgeServe $Expected)) {
         throw "Tailscale Serve did not confirm port $LocalPort."
     }
 }
@@ -73,25 +76,42 @@ $Config = $null
 $OldProcess = $null
 $CandidateProcess = $null
 $Switched = $false
+$CutoverState = @{ RetainCandidate = $false }
+$LeasePath = $null
 $OriginalEnvironment = @{}
 $EnvironmentNames = @('BRIDGE_HOST', 'BRIDGE_PORT', 'BRIDGE_UI_LANGUAGE', 'BRIDGE_STATE_FILE', 'CODEX_COMMAND')
 
 try {
     $Config = Get-BridgeConfig
+    if ($ExpectedCodexCommand -and $Config.CodexCommand -ne $ExpectedCodexCommand) { throw 'BRIDGE_CHANGED: the selected runtime changed during preparation.' }
+    if ($ExpectedCurrentVersion) {
+        $CurrentVersionOutput = (& $Config.CodexCommand --version) -join "`n"
+        if ($LASTEXITCODE -ne 0 -or $CurrentVersionOutput.Trim() -ne "codex-cli $ExpectedCurrentVersion") { throw 'BRIDGE_CHANGED: the installed CLI version changed during preparation.' }
+    }
+    if ($env:BRIDGE_PORT -or $env:BRIDGE_CODEX_COMMAND) { throw 'Remove BRIDGE_PORT/BRIDGE_CODEX_COMMAND overrides before a persistent blue-green switch.' }
+    if (-not $CodexCommand) { $CodexCommand = $Config.CodexCommand }
+    if (-not (Test-Path -LiteralPath $CodexCommand -PathType Leaf)) { throw "Codex command not found: $CodexCommand" }
     $OldProcess = Get-BridgeProcess $Config
     $OldHealth = if ($OldProcess) { Get-BridgeHealth $Config 5 } else { $null }
     if (-not ($OldProcess -and $OldHealth -and $OldHealth.ready)) {
         throw 'The current bridge is not healthy. Use start.ps1 for recovery before a blue-green restart.'
     }
-    $ActiveTurns = if ($OldHealth.activeTurns) { @($OldHealth.activeTurns.PSObject.Properties).Count } else { 0 }
-    if ($ActiveTurns -gt 0 -and -not $AllowActiveTurn) {
-        throw "Blue-green restart refused because $ActiveTurns turn(s) are active. Wait for idle or pass -AllowActiveTurn explicitly."
-    }
+    if (-not (Test-BridgeIdle $OldHealth)) { throw 'BRIDGE_BUSY: waiting for turns, queued messages, approvals, archives and requests to finish.' }
+    $HasGate = [bool]$OldHealth.PSObject.Properties['deployment']
+    if (-not $HasGate -and -not $AllowLegacySource) { throw 'Source bridge needs a one-time -AllowLegacySource deployment before automatic updates.' }
+    if (-not $HasGate -and $OldHealth.eventClients -gt 0) { throw 'BRIDGE_BUSY: close mobile bridge tabs for the one-time legacy migration.' }
 
     $CandidatePort = Select-CandidatePort $Config.LocalPort $CandidatePort
     if (-not $PSCmdlet.ShouldProcess("127.0.0.1:$($Config.LocalPort) -> 127.0.0.1:$CandidatePort", 'Start, verify, and switch the bridge')) { return }
 
     New-Item -ItemType Directory -Path $Config.StateDir, $Config.LogDir -Force | Out-Null
+    $LeasePath = Join-Path $Config.StateDir 'deployment-lease.json'
+    Write-BridgeDeploymentLease $LeasePath
+    # Requests admitted before the lease must settle before a second process reads state.
+    Start-Sleep -Milliseconds 300
+    $OldHealth = Get-BridgeHealth $Config 5
+    if (-not (Test-BridgeIdle $OldHealth)) { throw 'BRIDGE_BUSY: source became busy before draining.' }
+    if ($HasGate -and -not $OldHealth.deployment.draining) { throw 'Source did not acknowledge the deployment lease.' }
     $CandidateOut = Join-Path $Config.LogDir "candidate-$CandidatePort.out.log"
     $CandidateErr = Join-Path $Config.LogDir "candidate-$CandidatePort.err.log"
     Rotate-BridgeLog $CandidateOut 3
@@ -102,10 +122,10 @@ try {
     [Environment]::SetEnvironmentVariable('BRIDGE_PORT', [string]$CandidatePort, 'Process')
     [Environment]::SetEnvironmentVariable('BRIDGE_UI_LANGUAGE', $Config.UiLanguage, 'Process')
     [Environment]::SetEnvironmentVariable('BRIDGE_STATE_FILE', (Join-Path $Config.StateDir 'bridge-state.json'), 'Process')
-    [Environment]::SetEnvironmentVariable('CODEX_COMMAND', $Config.CodexCommand, 'Process')
+    [Environment]::SetEnvironmentVariable('CODEX_COMMAND', $CodexCommand, 'Process')
     try {
         $CandidateProcess = Start-Process -FilePath $Config.NodePath `
-            -ArgumentList $Config.ServerPath `
+            -ArgumentList ('"{0}"' -f $Config.ServerPath) `
             -WorkingDirectory $Config.Root `
             -WindowStyle Hidden `
             -RedirectStandardOutput $CandidateOut `
@@ -129,39 +149,63 @@ try {
     }
 
     Test-CandidateApi $CandidatePort
-    Set-ServeTarget $Config $CandidatePort
-    $Switched = $true
-
+    $FinalOldHealth = Get-BridgeHealth $Config 5
+    if (-not (Test-BridgeIdle $FinalOldHealth)) { throw 'BRIDGE_BUSY: source became busy before switching.' }
+    if (-not $HasGate -and $FinalOldHealth.eventClients -gt 0) { throw 'BRIDGE_BUSY: a mobile client connected during legacy migration.' }
+    $CandidateHealth = Get-CandidateHealth $CandidatePort
+    if (-not $CandidateHealth.deployment.blocked) { throw 'Candidate must remain in standby until committed.' }
     $TailnetStatus = & $Config.TailscalePath status --json | ConvertFrom-Json
     $RemoteUrl = "https://$($TailnetStatus.Self.DNSName.TrimEnd('.')):$($Config.HttpsPort)/"
-    if (-not (Get-Command Update-BridgeLocalConfig -ErrorAction SilentlyContinue)) {
-        throw 'Update-BridgeLocalConfig is unavailable; run the current setup.ps1 before blue-green deployment.'
+    $OriginalConfig = [IO.File]::ReadAllText($Config.ConfigPath)
+    $CutoverState.RetainCandidate = $true
+    Invoke-BridgeCutover -SwitchTraffic {
+        Set-ServeTarget $Config $CandidatePort
+    } -CommitConfig {
+        Update-BridgeLocalConfig @{ localPort = $CandidatePort; remoteUrl = $RemoteUrl; codexCommand = $CodexCommand; previousCodexCommand = $Config.CodexCommand } | Out-Null
+        Set-Content -LiteralPath $Config.PidPath -Value $CandidateProcess.Id -Encoding ascii
+    } -Verify {
+        # Writes stay frozen through the post-switch check, so rollback cannot
+        # lose messages accepted only by the candidate.
+        1..3 | ForEach-Object {
+            Start-Sleep -Seconds 1
+            $Verified = Get-CandidateHealth $CandidatePort
+            if (-not $Verified -or -not $Verified.ready -or $Verified.deployment.standby -or -not $Verified.deployment.draining) { throw 'Post-switch readiness failed.' }
+        }
+        # Resolve the advertised tailnet IP explicitly: local DNS/proxy software
+        # can rewrite *.ts.net, even while other tailnet devices can reach Serve.
+        # curl still verifies the HTTPS certificate against the original hostname.
+        $TailnetIp = @($TailnetStatus.Self.TailscaleIPs | Where-Object { $_ -notlike '*:*' })[0]
+        if (-not $TailnetIp) { throw 'No tailnet IPv4 address is available for the HTTPS probe.' }
+        $Curl = Resolve-BridgeExecutable -CommandNames @('curl.exe') -FallbackPaths @((Join-Path $env:SystemRoot 'System32\curl.exe'))
+        if (-not $Curl) { throw 'curl.exe is required for the HTTPS route probe.' }
+        $ProbeHost = $TailnetStatus.Self.DNSName.TrimEnd('.')
+        $RemoteJson = & $Curl --fail --silent --show-error --noproxy '*' --max-time 10 --resolve "${ProbeHost}:$($Config.HttpsPort):${TailnetIp}" ($RemoteUrl + 'api/health')
+        if ($LASTEXITCODE -ne 0) { throw 'HTTPS route probe failed.' }
+        $RemoteHealth = ($RemoteJson -join "`n") | ConvertFrom-Json
+        if ($RemoteHealth.eventStream.instanceId -ne $Verified.eventStream.instanceId) { throw 'HTTPS route is not serving the candidate.' }
+    } -StopOld {
+        Stop-OwnedProcess $OldProcess
+    } -Rollback {
+        # Restore routing before unfreezing either writer.
+        Set-ServeTarget $Config $Config.LocalPort
+        $TemporaryConfig = "$($Config.ConfigPath).$PID.tmp"
+        [IO.File]::WriteAllText($TemporaryConfig, $OriginalConfig)
+        Move-Item -LiteralPath $TemporaryConfig -Destination $Config.ConfigPath -Force
+        Set-Content -LiteralPath $Config.PidPath -Value (Get-ProcessId $OldProcess) -Encoding ascii
+    } -StopCandidate {
+        Stop-OwnedProcess $CandidateProcess
+        $CutoverState.RetainCandidate = $false
     }
-    Update-BridgeLocalConfig @{ localPort = $CandidatePort; remoteUrl = $RemoteUrl } | Out-Null
-    Set-Content -LiteralPath $Config.PidPath -Value $CandidateProcess.Id -Encoding ascii
-
-    Stop-OwnedProcess $OldProcess
+    $Switched = $true
+    $CutoverState.RetainCandidate = $false
     Write-Host "Blue-green restart completed: $($Config.LocalPort) -> $CandidatePort"
     Write-Host "Candidate PID: $($CandidateProcess.Id)"
     Write-Host "URL: $RemoteUrl"
 } catch {
-    $Failure = $_
-    $OldProcessId = Get-ProcessId $OldProcess
-    if ($Switched -and $OldProcessId -and (Get-Process -Id $OldProcessId -ErrorAction SilentlyContinue)) {
-        try {
-            Set-ServeTarget $Config $Config.LocalPort
-            if (Get-Command Update-BridgeLocalConfig -ErrorAction SilentlyContinue) {
-                Update-BridgeLocalConfig @{ localPort = $Config.LocalPort } | Out-Null
-            }
-            Set-Content -LiteralPath $Config.PidPath -Value $OldProcessId -Encoding ascii
-            $Switched = $false
-        } catch {
-            Write-Warning "Automatic rollback failed: $($_.Exception.Message)"
-        }
-    }
-    if (-not $Switched) { Stop-OwnedProcess $CandidateProcess }
-    throw $Failure
+    if (-not $Switched -and -not $CutoverState.RetainCandidate) { Stop-OwnedProcess $CandidateProcess }
+    throw
 } finally {
+    if ($LeasePath -and -not $CutoverState.RetainCandidate) { Remove-Item -LiteralPath $LeasePath -Force -ErrorAction SilentlyContinue }
     foreach ($Name in $EnvironmentNames) {
         if ($OriginalEnvironment.ContainsKey($Name)) {
             [Environment]::SetEnvironmentVariable($Name, $OriginalEnvironment[$Name], 'Process')

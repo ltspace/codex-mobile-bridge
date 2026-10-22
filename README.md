@@ -157,6 +157,14 @@ a short network-first window and falls back to that shell on slow or lost links.
 
 ## Operations
 
+Conversation takeover batches Windows lock inspection and refuses to stop shared
+desktop processes. A successful response requires a `turn/start` receipt for the
+specific queued message, rather than merely terminating the previous writer.
+If acquisition is not confirmed, check the queue before resending. Timeouts,
+unreadable process identity and permission failures are distinguished; detailed
+probe errors remain in local logs. Tests exercise real Windows file handles and
+fixture HTTP delivery, without terminating users' desktop conversations.
+
 | Command | Description |
 | --- | --- |
 | `.\start.ps1` | Start the bridge or verify the existing process. |
@@ -166,6 +174,10 @@ a short network-first window and falls back to that shell on slow or lost links.
 | `.\stop.ps1` | Stop the bridge and disable its Serve rule. |
 | `.\install-watchdog.ps1` | Install or update automatic recovery. |
 | `.\uninstall-watchdog.ps1` | Remove automatic recovery. |
+| `.\install-auto-update.ps1 -Bootstrap` | Enable stable CLI updates through the existing watchdog, including the first deployment. |
+| `.\auto-update.ps1 -CheckOnly -ForceCheck` | Check the stable npm release without installing or switching. |
+| `.\auto-update.ps1 -ForceCheck` | Run the enabled updater immediately. |
+| `.\install-auto-update.ps1 -Disable` | Disable future updates while keeping the installed runtime. |
 
 Watchdog installation requests administrator approval once so Task Scheduler
 can run the minute-level checks under the current user's non-interactive S4U
@@ -173,6 +185,37 @@ token. It does not store a password or open recurring console windows.
 
 Use `bluegreen-restart.ps1` for a planned upgrade while the bridge is healthy
 and idle. By default, it refuses to switch while a turn is active.
+
+### Automatic CLI updates
+
+The existing watchdog checks npm's public `@openai/codex` **latest** tag every
+15 minutes while the machine is online. Only newer `x.y.z` releases qualify;
+prereleases and downgrades are rejected. No additional scheduled task is needed.
+Runtimes are installed separately under `state/codex-runtimes/<version>/`, with
+TLS verification and npm lifecycle scripts disabled. Global npm and VS Code
+installations are untouched. Previous runtimes remain available for rollback.
+Installation times out after five minutes; failures retry after six hours.
+
+Active turns, queued messages, approvals, archives and unfinished requests defer
+the switch, with an idle retry every minute. A short deployment lease blocks new
+operations while the candidate loads state. Only the configured instance may
+drain queues or accept writes. Model and thread-list probes must pass before the
+Tailscale Serve switch; HTTPS must then return the candidate's instance ID before
+the old process is stopped. Failure restores routing and configuration. If
+rollback itself fails, both processes are retained and the error is logged.
+These probes do not run paid inference or establish mobile business E2E.
+
+The first `-Bootstrap` migration of a legacy bridge requires mobile tabs to be
+disconnected, then clears its one-time migration flag. Subsequent updates use the
+deployment gate. SSE may briefly reconnect; active turns are never forcibly
+interrupted by automatic updates. The UI refreshes models after an instance
+change and when opening a new conversation. Existing PWA windows need one close
+and reopen to acquire the updated frontend.
+
+Use `status.ps1` for the switch, runtime path and latest result. Details are in
+`logs/auto-update.log` and `state/auto-update.json`. To roll back manually, disable
+auto-update and run `bluegreen-restart.ps1 -CodexCommand '<old codex.cmd path>'`
+while idle, from an environment permitted to manage the running bridge process.
 
 ## Configuration
 

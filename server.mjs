@@ -10,6 +10,7 @@ import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
+import { DeploymentGate } from "./src/deployment-gate.mjs";
 
 const VERSION = "0.9.1";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -31,6 +32,7 @@ if (!["127.0.0.1", "::1", "localhost"].includes(HOST) && process.env.BRIDGE_ALLO
 }
 
 const eventHub = new EventHub();
+const deployment = new DeploymentGate(STATE_FILE, PORT);
 const stateStore = new BridgeStateStore(STATE_FILE);
 const client = new CodexClient({
   command: process.env.CODEX_COMMAND || "codex",
@@ -67,6 +69,7 @@ const threads = new ThreadService({
   approvalPolicy: APPROVAL_POLICY,
   sandboxMode: SANDBOX_MODE,
   archiveClientFactory: createArchiveClient,
+  isDeploymentBlocked: () => deployment.snapshot().blocked,
 });
 const takeover = new ThreadTakeoverService({
   protectedPids: () => [process.pid, client.snapshot().pid].filter(Boolean),
@@ -95,7 +98,7 @@ function parseInteger(raw, fallback, minimum, maximum) {
 }
 
 function parseCodexArgs(raw) {
-  if (!raw) return ["app-server", "--stdio"];
+  if (!raw) return ["app-server"];
   let value;
   try {
     value = JSON.parse(raw);
@@ -118,6 +121,7 @@ function bridgeSnapshot() {
     eventClients: eventHub.clients.size,
     eventStream: eventHub.snapshot(),
     metrics: metrics.snapshot(),
+    deployment: deployment.snapshot(),
     ...threads.snapshot(),
   };
 }
@@ -239,19 +243,21 @@ async function handleApi(request, response, url, id) {
       pid: body.owner?.pid,
       startedAt: body.owner?.startedAt,
     });
-    threads.retryQueuedMessages(threadId);
+    const delivery = await threads.confirmQueuedMessageStarted(threadId, queue.data[0].id);
     logger.info("thread_takeover", {
       requestId: id,
       threadId,
       terminated: result.terminated,
       ownerPid: result.owner?.pid || null,
+      turnId: delivery.turnId,
     });
     eventHub.publish("bridge/threadTakeover", {
       threadId,
       terminated: result.terminated,
       ownerPid: result.owner?.pid || null,
+      turnId: delivery.turnId,
     });
-    json(response, 200, result, id);
+    json(response, 200, { ...result, ...delivery }, id);
     return true;
   }
 
@@ -385,8 +391,18 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
     rejectCrossSiteMutation(request);
     if (url.pathname.startsWith("/api/")) {
-      const handled = await handleApi(request, response, url, id);
-      if (!handled) json(response, 404, { error: { code: "not_found", message: "接口不存在", retryable: false } }, id);
+      const probe = request.method === "GET" && ["/api/health", "/api/metrics", "/api/events", "/api/models", "/api/threads"].includes(url.pathname);
+      if (!probe && deployment.snapshot().blocked) {
+        throw new BridgeError("服务正在升级，请稍后重试", { status: 503, code: "bridge_updating", retryable: true });
+      }
+      const tracked = !["/api/health", "/api/metrics", "/api/events"].includes(url.pathname);
+      if (tracked) deployment.inFlight += 1;
+      try {
+        const handled = await handleApi(request, response, url, id);
+        if (!handled) json(response, 404, { error: { code: "not_found", message: "接口不存在", retryable: false } }, id);
+      } finally {
+        if (tracked) deployment.inFlight -= 1;
+      }
       return;
     }
     if (!["GET", "HEAD"].includes(request.method || "")) {
@@ -407,6 +423,13 @@ const server = createServer(async (request, response) => {
 
 const heartbeat = setInterval(() => eventHub.heartbeat(), 20_000);
 heartbeat.unref();
+let deploymentWasBlocked = deployment.snapshot().blocked;
+const deploymentMonitor = setInterval(() => {
+  const blocked = deployment.snapshot().blocked;
+  if (deploymentWasBlocked && !blocked) threads.resumeQueuedMessages();
+  deploymentWasBlocked = blocked;
+}, 1000);
+deploymentMonitor.unref();
 let stopping = false;
 
 async function shutdown(signal) {
@@ -414,6 +437,7 @@ async function shutdown(signal) {
   stopping = true;
   logger.info("bridge_stopping", { signal });
   clearInterval(heartbeat);
+  clearInterval(deploymentMonitor);
   eventHub.close();
   await new Promise((resolve) => server.close(resolve));
   await client.stop();

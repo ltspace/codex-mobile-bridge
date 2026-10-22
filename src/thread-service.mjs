@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 import { statSync } from "node:fs";
 import { open } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { BridgeError } from "./errors.mjs";
 import { compactTurnPage, deltaFromTurnPage, findThreadItem } from "./mobile-history.mjs";
 
@@ -144,6 +145,7 @@ export class ThreadService {
     archiveTimeoutMs = 20_000,
     disconnectGraceMs = 10_000,
     disconnectRetryMs = 2_000,
+    isDeploymentBlocked = () => false,
   }) {
     this.client = client;
     this.stateStore = stateStore;
@@ -154,6 +156,7 @@ export class ThreadService {
     this.archiveTimeoutMs = archiveTimeoutMs;
     this.disconnectGraceMs = disconnectGraceMs;
     this.disconnectRetryMs = disconnectRetryMs;
+    this.isDeploymentBlocked = isDeploymentBlocked;
     this.archiveOperation = null;
     this.activeTurns = new Map();
     this.loadedThreads = new Set();
@@ -164,6 +167,7 @@ export class ThreadService {
     this.queueDrainItems = new Map();
     this.queueRetryTimers = new Map();
     this.queueRetryCounts = new Map();
+    this.queueOutcomes = new Map();
     this.serverRequests = new Map();
     this.threadListCache = new Map();
     this.threadListInflight = new Map();
@@ -193,6 +197,7 @@ export class ThreadService {
         disconnectRecyclePending: Boolean(this.disconnectRecycleTimer || this.recyclePromise),
       },
       pendingRequests: this.serverRequests.size,
+      queueDrains: this.queueDrains.size,
       permissions: {
         approvalPolicy: this.approvalPolicy,
         sandboxMode: this.sandboxMode,
@@ -240,7 +245,7 @@ export class ThreadService {
     }
   }
 
-  async #listThreads({ limit, cursor, searchTerm }) {
+  async #listThreads({ limit, cursor, searchTerm, timeoutMs = 30_000 }) {
     try {
       const result = await this.client.request("thread/list", {
         limit,
@@ -251,7 +256,7 @@ export class ThreadService {
         useStateDbOnly: true,
         ...(cursor ? { cursor } : {}),
         ...(searchTerm ? { searchTerm } : {}),
-      });
+      }, timeoutMs);
       return result;
     } catch (error) {
       throw rpcFailure(error);
@@ -274,10 +279,13 @@ export class ThreadService {
     return { data };
   }
 
-  async findThreadSummary(threadId, { maxPages = 20 } = {}) {
+  async findThreadSummary(threadId, { maxPages = 20, timeoutMs = 10_000 } = {}) {
     let cursor = null;
+    const deadline = Date.now() + timeoutMs;
     for (let page = 0; page < maxPages; page += 1) {
-      const result = await this.#listThreads({ limit: 100, cursor, searchTerm: null });
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const result = await this.#listThreads({ limit: 100, cursor, searchTerm: null, timeoutMs: remaining });
       const threads = result?.data || result?.threads || result?.items || [];
       const found = threads.find((thread) => thread?.id === threadId);
       if (found) return found;
@@ -587,6 +595,33 @@ export class ThreadService {
     return { queued };
   }
 
+  async confirmQueuedMessageStarted(threadId, queueId, { timeoutMs = 12_000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    this.retryQueuedMessages(threadId);
+    do {
+      // Only the receipt for this particular queued message proves takeover.
+      // An active turn, removal from the queue, or killing the old writer does not.
+      const outcome = this.queueOutcomes.get(queueId);
+      if (outcome?.threadId === threadId && outcome.turnId) {
+        return { acquired: true, queueId, turnId: outcome.turnId };
+      }
+      if (!this.stateStore.queuedMessagesForThread(threadId).some((item) => item.id === queueId)) break;
+      if (Date.now() >= deadline) break;
+      await delay(Math.min(100, deadline - Date.now()));
+    } while (true);
+    throw new BridgeError("尚未确认接管成功，请查看排队消息状态，勿重复发送", {
+      status: 409,
+      code: "takeover_not_acquired",
+      retryable: true,
+      details: { queueId, lastCode: this.queueOutcomes.get(queueId)?.code || null },
+    });
+  }
+
+  #recordQueueOutcome(queueId, outcome) {
+    this.queueOutcomes.set(queueId, outcome);
+    while (this.queueOutcomes.size > 256) this.queueOutcomes.delete(this.queueOutcomes.keys().next().value);
+  }
+
   async interrupt(threadId, turnId = null) {
     const activeTurnId = turnId || this.activeTurns.get(threadId);
     if (!activeTurnId) {
@@ -732,7 +767,12 @@ export class ThreadService {
     for (const threadId of this.stateStore.queuedThreadIds()) this.#drainQueue(threadId);
   }
 
+  resumeQueuedMessages() {
+    this.#drainAllQueues();
+  }
+
   #drainQueue(threadId) {
+    if (this.isDeploymentBlocked()) return;
     if (!this.client.ready || this.activeTurns.has(threadId) || this.queueDrains.has(threadId)) return;
     const item = this.stateStore.peekQueuedMessage(threadId);
     if (!item) return;
@@ -747,6 +787,7 @@ export class ThreadService {
       effort: item.effort || null,
     })
       .then((result) => {
+        this.#recordQueueOutcome(item.id, { threadId, turnId: result?.turn?.id || null });
         this.stateStore.removeQueuedMessage(item.id);
         this.queueRetryCounts.delete(threadId);
         this.eventHub.publish("bridge/messageDequeued", {
@@ -758,6 +799,7 @@ export class ThreadService {
       })
       .catch((error) => {
         const failure = rpcFailure(error);
+        this.#recordQueueOutcome(item.id, { threadId, code: failure?.code || "send_failed" });
         if (failure?.code === "thread_in_use") this.stateStore.updateQueuedMessage(item.id, { reason: "thread_in_use" });
         const attempt = (this.queueRetryCounts.get(threadId) || 0) + 1;
         this.queueRetryCounts.set(threadId, attempt);
