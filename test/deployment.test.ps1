@@ -49,3 +49,9 @@ foreach ($Busy in @('turn', 'approval', 'rpc', 'queue', 'archive', 'drain', 'htt
     Assert-Equal (Test-BridgeIdle $Health) $false
 }
 Write-Output 'deployment tests passed'
+
+$DraftHealth = $Healthy | ConvertFrom-Json
+$DraftHealth | Add-Member -NotePropertyName writerLifecycle -NotePropertyValue ([pscustomobject]@{ loadedDrafts = 1 })
+Assert-Equal (Test-BridgeIdle $DraftHealth) $false
+$DraftHealth.writerLifecycle.loadedDrafts = 0
+Assert-Equal (Test-BridgeIdle $DraftHealth) $true

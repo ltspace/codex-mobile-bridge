@@ -146,6 +146,8 @@ export class ThreadService {
     disconnectGraceMs = 10_000,
     disconnectRetryMs = 2_000,
     isDeploymentBlocked = () => false,
+    hasActiveRequests = () => false,
+    logger = { info() {} },
   }) {
     this.client = client;
     this.stateStore = stateStore;
@@ -157,6 +159,8 @@ export class ThreadService {
     this.disconnectGraceMs = disconnectGraceMs;
     this.disconnectRetryMs = disconnectRetryMs;
     this.isDeploymentBlocked = isDeploymentBlocked;
+    this.hasActiveRequests = hasActiveRequests;
+    this.logger = logger;
     this.archiveOperation = null;
     this.activeTurns = new Map();
     this.loadedThreads = new Set();
@@ -194,6 +198,7 @@ export class ThreadService {
       activeTurns: Object.fromEntries(this.activeTurns),
       writerLifecycle: {
         loadedThreads: this.loadedThreads.size,
+        loadedDrafts: [...this.loadedThreads].filter((id) => this.stateStore.hasDraft(id)).length,
         disconnectRecyclePending: Boolean(this.disconnectRecycleTimer || this.recyclePromise),
       },
       pendingRequests: this.serverRequests.size,
@@ -358,8 +363,22 @@ export class ThreadService {
     try {
       return await this.client.request("thread/read", { threadId, includeTurns: false });
     } catch (error) {
-      throw rpcFailure(error);
+      throw this.#threadReadFailure(threadId, error);
     }
+  }
+
+  #threadReadFailure(threadId, error) {
+    if (this.stateStore.hasDraft(threadId) && error?.code === -32600
+      && /thread not loaded|not found|no rollout/i.test(error.message || "")) {
+      return new BridgeError("此未发送首条消息的会话已随旧进程退出失效，请新建会话后重新发送；输入内容不会被自动重发", {
+        status: 410, code: "draft_expired", retryable: false,
+      });
+    }
+    return rpcFailure(error);
+  }
+
+  async waitForRecycle() {
+    if (this.recyclePromise) await this.recyclePromise;
   }
 
   async updateSettings(threadId, body = {}) {
@@ -368,9 +387,14 @@ export class ThreadService {
       throw new BridgeError("请选择模型或推理等级", { status: 400, code: "invalid_model_settings" });
     }
     await this.#waitForRelease(threadId);
-    const shouldResume = !this.stateStore.hasDraft(threadId) && !this.activeTurns.has(threadId);
+    const shouldResume = (!this.stateStore.hasDraft(threadId) || !this.loadedThreads.has(threadId)) && !this.activeTurns.has(threadId);
+    let resumed = false;
     try {
-      if (shouldResume) await this.client.request("thread/resume", { threadId });
+      if (this.stateStore.hasDraft(threadId) && !this.loadedThreads.has(threadId)) await this.getThread(threadId);
+      if (shouldResume) {
+        await this.client.request("thread/resume", { threadId, excludeTurns: true });
+        resumed = true;
+      }
       this.loadedThreads.add(threadId);
       await this.client.request("thread/settings/update", {
         threadId,
@@ -382,7 +406,7 @@ export class ThreadService {
     } catch (error) {
       throw rpcFailure(error);
     } finally {
-      if (shouldResume) void this.#releaseThread(threadId);
+      if (resumed) void this.#releaseThread(threadId);
     }
   }
 
@@ -426,6 +450,16 @@ export class ThreadService {
 
   async #performArchive(threadId) {
     await this.#waitForRelease(threadId);
+    if (this.archiveClientFactory && this.loadedThreads.has(threadId)) {
+      await this.#releaseThread(threadId);
+      const deadline = Date.now() + 5_000;
+      while (this.loadedThreads.has(threadId) && Date.now() < deadline) await delay(25);
+      if (this.loadedThreads.has(threadId)) {
+        throw new BridgeError("会话正在释放占用，请稍后再归档", {
+          status: 409, code: "thread_releasing", retryable: true,
+        });
+      }
+    }
     const archiveClient = this.archiveClientFactory ? this.archiveClientFactory() : null;
     const rpcClient = archiveClient || this.client;
     const forwardNotification = (message) => this.#notification(message);
@@ -461,6 +495,12 @@ export class ThreadService {
   }
 
   async getTurns(threadId, { limit = 10, cursor = null, compact = true } = {}) {
+    // Before the first user message there is no persisted history to page.
+    // A stale draft must still be checked: a process exit may have lost it.
+    if (this.stateStore.hasDraft(threadId)) {
+      await this.getThread(threadId);
+      if (this.loadedThreads.has(threadId)) return { data: [], nextCursor: null };
+    }
     try {
       const result = await this.client.request("thread/turns/list", {
         threadId,
@@ -721,8 +761,9 @@ export class ThreadService {
     await this.#waitForRelease(threadId);
     let resumed = false;
     try {
-      if (!this.stateStore.hasDraft(threadId)) {
-        await this.client.request("thread/resume", { threadId });
+      if (!this.stateStore.hasDraft(threadId) || !this.loadedThreads.has(threadId)) {
+        if (this.stateStore.hasDraft(threadId)) await this.getThread(threadId);
+        await this.client.request("thread/resume", { threadId, excludeTurns: true });
         resumed = true;
       }
       this.loadedThreads.add(threadId);
@@ -849,7 +890,15 @@ export class ThreadService {
 
   async #recycleDisconnectedClient() {
     if (this.eventHub.clients.size > 0 || this.loadedThreads.size === 0) return;
+    // Unsent threads are memory-only. Restarting would irreversibly discard them.
+    // Do not poll indefinitely: the next disconnect after sending can recycle.
+    if ([...this.loadedThreads].some((id) => this.stateStore.hasDraft(id))) {
+      this.logger.info("app_server_recycle_deferred", { reason: "unsent_draft" });
+      return;
+    }
     const busy = this.activeTurns.size > 0
+      || this.hasActiveRequests()
+      || this.isDeploymentBlocked()
       || this.serverRequests.size > 0
       || Boolean(this.archiveOperation)
       || this.queueDrains.size > 0
@@ -861,6 +910,7 @@ export class ThreadService {
     }
 
     const threadCount = this.loadedThreads.size;
+    this.logger.info("app_server_recycle_started", { reason: "mobile_disconnected", threadCount });
     this.eventHub.publish("bridge/appServerRecycleStarted", { reason: "mobile_disconnected", threadCount });
     const recycle = this.client.restart()
       .then(() => {

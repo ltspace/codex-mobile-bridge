@@ -4,6 +4,20 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+## 0.9.2 - 2026-10-28
+
+- Preserve unsent in-memory threads across mobile disconnects and defer deployments
+  while they are loaded. Report drafts lost by an earlier process exit as 410.
+- Wait for planned App Server recycling before admitting RPC requests and resume
+  persisted drafts before sending; never infer that a draft marker is a live thread.
+- Close PowerShell health-check connections cleanly; count peer resets without
+  replying to dead sockets or flooding warning logs.
+- Separate observed running state from verified process identity for Session 0.
+- Support persistent, child-only Codex proxy configuration for HTTP and WebSocket
+  connectivity, with an explicit bypass list and no machine-wide changes.
+- Unload unsubscribed idle threads promptly and wait for actual lock release before
+  isolated archival. Disable inherited desktop notification hooks in Bridge children.
+
 - Batch Windows takeover lock inspection, exclude coordination files, and share
   concurrent inspections without retaining stale ownership evidence.
 - Give takeover state lookup, native probes and HTTP requests separate bounded

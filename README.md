@@ -239,6 +239,8 @@ the Git-ignored `state/config.json`. Configuration priority is:
 | `BRIDGE_UI_LANGUAGE` | OS language | `en` or `zh-CN` |
 | `BRIDGE_APPROVAL_POLICY` | `never` | App Server approval policy |
 | `BRIDGE_SANDBOX_MODE` | `danger-full-access` | Codex sandbox mode |
+| `BRIDGE_CODEX_PROXY_URL` | inherited environment | HTTP(S) proxy for Codex children only; local config key: `codexProxyUrl` |
+| `BRIDGE_CODEX_NO_PROXY` | inherited environment or loopback and `.local` | Proxy bypass list; local config key: `codexNoProxy` |
 
 The Node entrypoint also accepts `CODEX_COMMAND`, `CODEX_ARGS_JSON`,
 `CODEX_CWD`, `BRIDGE_STATE_FILE`, and `BRIDGE_MAX_BODY_BYTES`. A non-loopback

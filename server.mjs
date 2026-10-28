@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexClient } from "./src/codex-client.mjs";
 import { EventHub } from "./src/event-hub.mjs";
@@ -11,8 +11,9 @@ import { BridgeStateStore } from "./src/state-store.mjs";
 import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 import { DeploymentGate } from "./src/deployment-gate.mjs";
+import { codexEnvironment } from "./src/codex-environment.mjs";
 
-const VERSION = "0.9.1";
+const VERSION = "0.9.2";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
@@ -26,6 +27,7 @@ const UI_LANGUAGE = ["en", "zh-CN"].includes(process.env.BRIDGE_UI_LANGUAGE) ? p
 const CODEX_ARGS = parseCodexArgs(process.env.CODEX_ARGS_JSON);
 const logger = createLogger("bridge");
 const metrics = new BridgeMetrics();
+let clientResets = 0;
 
 if (!["127.0.0.1", "::1", "localhost"].includes(HOST) && process.env.BRIDGE_ALLOW_NON_LOOPBACK !== "1") {
   throw new Error("Refusing a non-loopback bind. Use Tailscale Serve or set BRIDGE_ALLOW_NON_LOOPBACK=1 explicitly.");
@@ -34,9 +36,11 @@ if (!["127.0.0.1", "::1", "localhost"].includes(HOST) && process.env.BRIDGE_ALLO
 const eventHub = new EventHub();
 const deployment = new DeploymentGate(STATE_FILE, PORT);
 const stateStore = new BridgeStateStore(STATE_FILE);
+const codexEnv = codexEnvironment(join(dirname(STATE_FILE), "config.json"));
 const client = new CodexClient({
   command: process.env.CODEX_COMMAND || "codex",
   args: CODEX_ARGS,
+  env: codexEnv,
   cwd: process.env.CODEX_CWD || process.cwd(),
   logger: { error: (message) => logger.warn("app_server_stderr", { message }) },
 });
@@ -45,7 +49,7 @@ function createArchiveClient() {
     command: process.env.CODEX_COMMAND || "codex",
     args: CODEX_ARGS,
     cwd: process.env.CODEX_CWD || process.cwd(),
-    env: { ...process.env, CODEX_BRIDGE_CHANNEL: "archive" },
+    env: { ...codexEnv, CODEX_BRIDGE_CHANNEL: "archive" },
     initializeTimeoutMs: 5_000,
     logger: { error: (message) => logger.warn("archive_app_server_stderr", { message }) },
   });
@@ -70,6 +74,8 @@ const threads = new ThreadService({
   sandboxMode: SANDBOX_MODE,
   archiveClientFactory: createArchiveClient,
   isDeploymentBlocked: () => deployment.snapshot().blocked,
+  hasActiveRequests: () => deployment.inFlight > 0,
+  logger,
 });
 const takeover = new ThreadTakeoverService({
   protectedPids: () => [process.pid, client.snapshot().pid].filter(Boolean),
@@ -98,7 +104,9 @@ function parseInteger(raw, fallback, minimum, maximum) {
 }
 
 function parseCodexArgs(raw) {
-  if (!raw) return ["app-server"];
+  // Release idle writer locks promptly after unsubscribe. Desktop-only notify
+  // helpers are not available in the watchdog's non-interactive session.
+  if (!raw) return ["app-server", "-c", "thread_unload_delay_secs=0", "-c", "notify=[]"];
   let value;
   try {
     value = JSON.parse(raw);
@@ -114,6 +122,8 @@ function parseCodexArgs(raw) {
 function bridgeSnapshot() {
   return {
     version: VERSION,
+    bridgePid: process.pid,
+    connections: { clientResets },
     uiLanguage: UI_LANGUAGE,
     startedAt: STARTED_AT,
     uptimeSeconds: Math.floor(process.uptime()),
@@ -261,6 +271,7 @@ async function handleApi(request, response, url, id) {
     return true;
   }
 
+  await threads.waitForRecycle();
   if (!client.ready) {
     throw new BridgeError(client.error || "Codex app-server 正在启动", {
       status: 503,
@@ -452,7 +463,13 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 server.on("clientError", (error, socket) => {
-  logger.warn("client_error", { error });
+  // A reset peer is already gone; writing a 400 back cannot repair it.
+  if (error.code === "ECONNRESET" || !socket.writable) {
+    if (error.code === "ECONNRESET") clientResets += 1;
+    socket.destroy();
+    return;
+  }
+  logger.warn("client_error", { error, remoteAddress: socket.remoteAddress, remotePort: socket.remotePort });
   socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
 });
 

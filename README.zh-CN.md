@@ -217,12 +217,20 @@ Serve，核对 HTTPS 实际实例，最后停止旧进程并恢复写入。验�
 | `BRIDGE_UI_LANGUAGE` | 操作系统语言 | `en` 或 `zh-CN` |
 | `BRIDGE_APPROVAL_POLICY` | `never` | App Server 审批策略 |
 | `BRIDGE_SANDBOX_MODE` | `danger-full-access` | Codex 沙箱模式 |
+| `BRIDGE_CODEX_PROXY_URL` | 继承环境 | 仅为 Codex 子进程配置 HTTP(S) 代理；也可设置 `state/config.json` 的 `codexProxyUrl` |
+| `BRIDGE_CODEX_NO_PROXY` | 继承环境或回环地址及 `.local` | 代理绕过列表；本地配置键为 `codexNoProxy` |
 
 Node 入口还支持 `CODEX_COMMAND`、`CODEX_ARGS_JSON`、`CODEX_CWD`、
 `BRIDGE_STATE_FILE` 和 `BRIDGE_MAX_BODY_BYTES`。绑定非回环地址需要设置
 `BRIDGE_ALLOW_NON_LOOPBACK=1`。
 
 </details>
+
+代理配置在启动时读取，需要蓝绿切换后生效；不会修改系统代理或 Bridge 本身的网络环境。
+默认 App Server 参数设置 `thread_unload_delay_secs=0`，并关闭桌面专用的 `notify` hook；显式配置 `CODEX_ARGS_JSON` 时由该配置负责这些参数。
+未发送首条消息的新会话仅存在于 App Server 内存中：断线回收和自动升级会等待这些会话发送后再继续。
+意外退出导致的已丢失草稿会返回 `410 draft_expired`，需要新建会话；不会自动重发输入或创建替代会话。
+`status.ps1` 的 `Running` 根据进程或监听端口与健康接口判断；`ProcessIdentityVerified` 单独表示是否能读取并验证进程身份。
 
 ## 安全说明
 

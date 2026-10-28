@@ -31,13 +31,13 @@ function Select-CandidatePort([int]$CurrentPort, [int]$RequestedPort) {
 }
 
 function Get-CandidateHealth([int]$Port, [int]$TimeoutSeconds = 3) {
-    try { return Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec $TimeoutSeconds } catch { return $null }
+    try { return Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec $TimeoutSeconds -DisableKeepAlive } catch { return $null }
 }
 
 function Test-CandidateApi([int]$Port) {
-    $Models = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/models" -TimeoutSec 30
+    $Models = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/models" -TimeoutSec 30 -DisableKeepAlive
     if (-not $Models.data -or @($Models.data).Count -eq 0) { throw 'Candidate returned an empty model catalog.' }
-    $Threads = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads?limit=10" -TimeoutSec 30
+    $Threads = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/threads?limit=10" -TimeoutSec 30 -DisableKeepAlive
     if (-not $Threads.PSObject.Properties['data']) { throw 'Candidate returned an invalid thread list.' }
 }
 

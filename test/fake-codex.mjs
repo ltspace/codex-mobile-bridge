@@ -106,6 +106,7 @@ reader.on("line", (line) => {
     send({ id, result: { thread: { id: params.threadId, status: { type: "idle" } } } });
   } else if (method === "thread/unsubscribe") {
     send({ id, result: { status: "unsubscribed" } });
+    setTimeout(() => send({ method: "thread/closed", params: { threadId: params.threadId } }), 50);
   } else if (method === "thread/settings/update") {
     const previous = threadSettings.get(params.threadId) || { model: "gpt-6-astra", effort: "medium" };
     const settings = { model: params.model || previous.model, effort: params.effort || previous.effort };

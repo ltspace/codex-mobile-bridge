@@ -138,7 +138,7 @@ function Get-BridgeProcess([object]$Config) {
 
 function Get-BridgeHealth([object]$Config, [int]$TimeoutSeconds = 3) {
     try {
-        return Invoke-RestMethod -Uri "http://127.0.0.1:$($Config.LocalPort)/api/health" -TimeoutSec $TimeoutSeconds
+        return Invoke-RestMethod -Uri "http://127.0.0.1:$($Config.LocalPort)/api/health" -TimeoutSec $TimeoutSeconds -DisableKeepAlive
     } catch {
         return $null
     }

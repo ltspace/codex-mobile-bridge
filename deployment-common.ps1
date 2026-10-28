@@ -3,6 +3,7 @@ function Test-BridgeIdle([object]$Health) {
     if ($Health.activeTurns -and @($Health.activeTurns.PSObject.Properties).Count -gt 0) { return $false }
     if ($Health.pendingRequests -gt 0 -or $Health.appServer.pendingRpc -gt 0) { return $false }
     if ($Health.drafts.queuedMessages -gt 0 -or $Health.archive.busy) { return $false }
+    if ($Health.PSObject.Properties['writerLifecycle'] -and $Health.writerLifecycle.PSObject.Properties['loadedDrafts'] -and $Health.writerLifecycle.loadedDrafts -gt 0) { return $false }
     if ($Health.PSObject.Properties['queueDrains'] -and $Health.queueDrains -gt 0) { return $false }
     if ($Health.PSObject.Properties['deployment'] -and $Health.deployment.inFlight -gt 0) { return $false }
     return $true

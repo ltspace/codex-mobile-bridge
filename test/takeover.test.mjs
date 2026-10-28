@@ -75,7 +75,10 @@ async function queueFixture(t, request) {
   const client = new EventEmitter();
   client.ready = true;
   client.snapshot = () => ({ ready: client.ready });
-  client.request = request;
+  client.request = (method, params) => {
+    if (method === "thread/read" || method === "thread/resume") return Promise.resolve({ thread: { id: params.threadId } });
+    return request(method, params);
+  };
   const service = new ThreadService({ client, stateStore: store, eventHub: new EventHub() });
   t.after(async () => { client.ready = false; for (const timer of service.queueRetryTimers.values()) clearTimeout(timer); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
   return { service, store, item };

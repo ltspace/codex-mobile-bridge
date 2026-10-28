@@ -46,6 +46,7 @@ test("standby cannot drain a persisted queue; activation starts it exactly once"
   client.snapshot = () => ({ ready: true });
   let starts = 0;
   client.request = async (method) => {
+    if (method === "thread/read" || method === "thread/resume") return { thread: { id: "draft-1" } };
     assert.equal(method, "turn/start");
     starts += 1;
     return { turn: { id: "turn-1" } };

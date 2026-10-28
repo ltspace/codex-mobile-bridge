@@ -25,7 +25,7 @@ function Write-WatchdogLog([string]$Message) {
 }
 
 function Get-WatchdogHealth {
-    try { return Invoke-RestMethod -Uri "http://127.0.0.1:$($Config.LocalPort)/api/health" -TimeoutSec 4 } catch { return $null }
+    return Get-BridgeHealth $Config 4
 }
 
 function Read-WatchdogState {

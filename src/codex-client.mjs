@@ -187,7 +187,7 @@ export class CodexClient extends EventEmitter {
 
     try {
       const initialized = await this.#requestRaw("initialize", {
-        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.9.1" },
+        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.9.2" },
         capabilities: { experimentalApi: true },
       }, this.initializeTimeoutMs);
       this.userAgent = initialized?.userAgent || null;

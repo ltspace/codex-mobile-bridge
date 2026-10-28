@@ -18,18 +18,20 @@ $QueuedMessages = if ($Health -and $Health.PSObject.Properties['drafts'] -and $H
 $Metrics = if ($Health -and $Health.PSObject.Properties['metrics']) { $Health.metrics } else { $null }
 $HttpMetrics = if ($Metrics -and $Metrics.PSObject.Properties['http']) { $Metrics.http } else { $null }
 $RpcMetrics = if ($Metrics -and $Metrics.PSObject.Properties['rpc']) { $Metrics.rpc } else { $null }
+$ObservedRunning = [bool]($Listener -and $Health -and $HealthVersion -and $Health.PSObject.Properties['eventStream'])
 $UpdateStatePath = Join-Path $Config.StateDir 'auto-update.json'
 $UpdateState = if (Test-Path -LiteralPath $UpdateStatePath) { try { Get-Content -LiteralPath $UpdateStatePath -Raw | ConvertFrom-Json } catch { $null } } else { $null }
 
 [pscustomobject]@{
-    Running = [bool]$Process
+    Running = [bool]($Process -or $ObservedRunning)
+    ProcessIdentityVerified = [bool]$Process
     Healthy = [bool]($Health -and $Health.ready)
     Version = $HealthVersion
     CodexCommand = $Config.CodexCommand
     AutoUpdateEnabled = [bool](Get-BridgeConfigValue (Read-BridgeLocalConfig) 'autoUpdateEnabled')
     AutoUpdate = $UpdateState
     Config = $Config.ConfigPath
-    BridgePid = if ($Process) { $Process.ProcessId } else { $null }
+    BridgePid = if ($Process) { $Process.ProcessId } elseif ($ObservedRunning) { $Listener.OwningProcess } else { $null }
     AppServerPid = if ($AppServer) { $AppServer.pid } else { $null }
     AppServerState = if ($AppServer) { $AppServer.status } else { if ($Health) { 'legacy' } else { 'unreachable' } }
     Listener = if ($Listener) { "$($Listener.LocalAddress):$($Listener.LocalPort) PID=$($Listener.OwningProcess)" } else { 'missing' }

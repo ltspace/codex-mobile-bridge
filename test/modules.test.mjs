@@ -63,6 +63,7 @@ test("mobile disconnect recycles an idle App Server that still owns threads", as
   const eventHub = new EventHub();
   const stateStore = {
     addDraft() {},
+    hasDraft: () => false,
     snapshot: () => ({ queuedMessages: 0 }),
   };
   const service = new ThreadService({
@@ -108,6 +109,7 @@ test("mobile disconnect waits for an active turn before recycling", async () => 
   const eventHub = new EventHub();
   const stateStore = {
     addDraft() {},
+    hasDraft: () => false,
     snapshot: () => ({ queuedMessages: 0 }),
     peekQueuedMessage: () => null,
   };
