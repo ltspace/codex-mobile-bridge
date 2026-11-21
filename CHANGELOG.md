@@ -4,6 +4,10 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Show desktop-pinned conversations above recent history in desktop order, including
+  older pins beyond the first history page. Deduplicate search and paginated results,
+  and refresh desktop pin changes on manual refresh, reconnect, and foreground return.
+
 ## 0.9.2 - 2026-10-28
 
 - Preserve unsent in-memory threads across mobile disconnects and defer deployments

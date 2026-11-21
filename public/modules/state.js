@@ -4,6 +4,7 @@ export const state = {
   snapshot: null,
   threadClient: "codex",
   threads: [],
+  pinnedThreadIds: [],
   threadsCursor: null,
   threadsLoading: false,
   threadsRequestVersion: 0,
