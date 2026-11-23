@@ -1,28 +1,28 @@
 const APP_VERSION = "0.9.2";
 const CACHE_PREFIX = "codex-bridge-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v${APP_VERSION}-pinned-1`;
+const CACHE_NAME = `${CACHE_PREFIX}v${APP_VERSION}-ui-v2`;
 const NAVIGATION_TIMEOUT_MS = 3_500;
 const SHELL = [
   "/",
   "/index.html",
   "/styles.css",
-  "/app.js",
+  "/ui/v2/app.js",
   "/manifest.webmanifest",
   "/icon.svg",
   "/icon-maskable.svg",
   "/icon-180.png",
   "/icon-192.png",
   "/icon-512.png",
-  "/modules/api.js",
-  "/modules/elements.js",
-  "/modules/event-stream.js",
-  "/modules/formatters.js",
-  "/modules/i18n.js",
-  "/modules/markdown.js",
-  "/modules/messages.js",
-  "/modules/pwa.js",
-  "/modules/state.js",
-  "/modules/theme-init.js",
+  "/ui/v2/modules/api.js",
+  "/ui/v2/modules/elements.js",
+  "/ui/v2/modules/event-stream.js",
+  "/ui/v2/modules/formatters.js",
+  "/ui/v2/modules/i18n.js",
+  "/ui/v2/modules/markdown.js",
+  "/ui/v2/modules/messages.js",
+  "/ui/v2/modules/pwa.js",
+  "/ui/v2/modules/state.js",
+  "/ui/v2/modules/theme-init.js",
 ];
 const SHELL_PATHS = new Set(SHELL);
 

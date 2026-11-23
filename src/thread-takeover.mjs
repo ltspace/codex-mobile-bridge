@@ -9,6 +9,7 @@ import { BridgeError } from "./errors.mjs";
 
 const execFileAsync = promisify(execFile);
 const PROBE_SCRIPT = fileURLToPath(new URL("./find-thread-writer.ps1", import.meta.url));
+const DESKTOP_SCRIPT = fileURLToPath(new URL("./desktop-handoff.ps1", import.meta.url));
 const SAFE_THREAD_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 
 function defaultCodexHome() {
@@ -40,6 +41,29 @@ export function isEligibleVsCodeOwner(owner) {
     && /\bapp-server\b/i.test(commandLine)
     && Number.isFinite(Date.parse(owner?.startedAt))
     && /\\\.vscode(?:-insiders)?\\extensions\\openai\.chatgpt-[^\\]+\\/.test(executable);
+}
+
+function isDesktopOwner(owner) {
+  const path = String(owner?.executablePath || "").replaceAll("/", "\\");
+  return Boolean(owner?.parentPid) && Number.isFinite(Date.parse(owner.startedAt))
+    && /\bapp-server\b/i.test(owner.commandLine)
+    && /\\(?:OpenAI\\Codex\\bin\\[^\\]+|WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\resources)\\codex\.exe$/i.test(path);
+}
+
+function desktopAppTools(owner, threadId, item) {
+  return new Promise((resolve) => {
+    const child = execFile(process.env.BRIDGE_POWERSHELL_COMMAND || "powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", DESKTOP_SCRIPT, "-DesktopProcessId", String(owner.parentPid), "-ThreadId", threadId,
+    ], { windowsHide: true, timeout: 20_000, maxBuffer: 16 * 1024 }, (error, stdout) => {
+      const matches = [...String(stdout).matchAll(/^\{"status":"([a-z]+)"\}\r?$/gm)];
+      const status = matches.at(-1)?.[1];
+      if (!error && ["ready", "accepted", "unavailable", "unconfirmed"].includes(status)) resolve(status);
+      else resolve(item ? "unconfirmed" : "unavailable");
+    });
+    child.stdin.on("error", () => { /* execFile reports the child failure. */ });
+    child.stdin.end(JSON.stringify(item ? { send: true, prompt: item.text, model: item.model, effort: item.effort } : {}));
+  });
 }
 
 export function isProtectedOwner(owner, protectedPids) {
@@ -143,6 +167,7 @@ export class ThreadTakeoverService {
     probeOwners = powershellProbe,
     terminate = powershellTerminate,
     protectedPids = () => [process.pid],
+    desktop = desktopAppTools,
     secret = randomBytes(32),
   } = {}) {
     this.platform = platform;
@@ -150,6 +175,7 @@ export class ThreadTakeoverService {
     this.probeOwners = probeOwners;
     this.terminate = terminate;
     this.protectedPids = protectedPids;
+    this.desktop = desktop;
     this.secret = secret;
     this.pending = new Set();
     this.inspections = new Map();
@@ -183,6 +209,13 @@ export class ThreadTakeoverService {
     if (!owner.executablePath || !owner.commandLine) {
       return { available: false, reason: "owner_unverifiable", owner: { ...publicOwner(owner), client: "unknown" } };
     }
+    if (isDesktopOwner(owner)) {
+      const desktopOwner = { ...publicOwner(owner), client: "desktop", application: "Codex Desktop" };
+      if (await this.desktop(owner, threadId) !== "ready") {
+        return { available: false, reason: "desktop_unavailable", owner: desktopOwner };
+      }
+      return { available: true, mode: "desktop", owner: desktopOwner, token: this.#token(threadId, owner) };
+    }
     if (!isEligibleVsCodeOwner(owner)) {
       return { available: false, reason: "unsupported_owner", owner: { ...publicOwner(owner), client: "other" } };
     }
@@ -197,14 +230,14 @@ export class ThreadTakeoverService {
     };
   }
 
-  async takeover(threadId, { token, pid, startedAt } = {}) {
+  async takeover(threadId, { token, pid, startedAt, desktopMessage } = {}) {
     this.#validateThreadId(threadId);
     if (this.pending.has(threadId)) {
       throw new BridgeError("会话接管正在进行", { status: 409, code: "takeover_busy", retryable: true });
     }
     this.pending.add(threadId);
     try {
-      if (token == null) return { ok: true, terminated: false, owner: null };
+      if (token == null && !desktopMessage) return { ok: true, terminated: false, owner: null };
       const expectedOwner = normalizeOwner({ pid, startedAt });
       if (!expectedOwner || !Number.isFinite(Date.parse(expectedOwner.startedAt))
         || !this.#sameToken(this.#token(threadId, expectedOwner), token)) {
@@ -225,11 +258,22 @@ export class ThreadTakeoverService {
           retryable: true,
         });
       }
-      if (isProtectedOwner(currentOwner, this.protectedPids()) || !isEligibleVsCodeOwner(currentOwner)) {
+      const validOwner = desktopMessage ? isDesktopOwner(currentOwner) : isEligibleVsCodeOwner(currentOwner);
+      if (isProtectedOwner(currentOwner, this.protectedPids()) || !validOwner) {
         throw new BridgeError("持锁进程已经变化，请重新确认", {
           status: 409,
           code: "takeover_owner_changed",
           retryable: true,
+        });
+      }
+      if (desktopMessage) {
+        const status = await this.desktop(currentOwner, threadId, desktopMessage);
+        if (status === "accepted") return { ok: true, handedOff: true, queueId: desktopMessage.id };
+        const unavailable = status === "unavailable";
+        throw new BridgeError(unavailable ? "桌面 Codex 暂时无法接收消息" : "桌面 Codex 是否已收到消息无法确认，请检查会话历史", {
+          status: 409,
+          code: unavailable ? "desktop_delivery_unavailable" : "desktop_delivery_unconfirmed",
+          retryable: unavailable,
         });
       }
       if (currentOwner.sharedOwner || currentOwner.threadIds.length !== 1 || currentOwner.threadIds[0] !== threadId) {

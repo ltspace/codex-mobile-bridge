@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 const ROOT = resolve(import.meta.dirname, "..");
+const TAKEOVER_HEADERS = { "X-Codex-Bridge-Takeover": "2" };
 
 test("watchdog runs outside the interactive desktop session", async () => {
   const installer = await readFile(join(ROOT, "install-watchdog.ps1"), "utf8");
@@ -96,8 +97,14 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const page = await fetch(`${baseUrl}/`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /script-src 'self'/);
-  assert.match(await page.text(), /Codex Bridge/);
-  const browserModule = await fetch(`${baseUrl}/modules/api.js`);
+  const pageSource = await page.text();
+  assert.match(pageSource, /Codex Bridge/);
+  const entryPath = pageSource.match(/<script type="module" src="([^"]+)"/)?.[1];
+  assert.equal(entryPath, "/ui/v2/app.js");
+  const entryModule = await fetch(new URL(entryPath, baseUrl));
+  assert.equal(entryModule.status, 200);
+  assert.match(await entryModule.text(), /"X-Codex-Bridge-Takeover": "2"/);
+  const browserModule = await fetch(new URL("./modules/api.js", new URL(entryPath, baseUrl)));
   assert.equal(browserModule.status, 200);
   assert.match(browserModule.headers.get("content-type"), /^text\/javascript/);
   assert.match(await browserModule.text(), /export async function api/);
@@ -232,7 +239,16 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const conflictQueue = await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json();
   assert.equal(conflictQueue.blockedByExternalWriter, true);
   assert.equal(conflictQueue.data[0].text, "wait for desktop");
-  const takeoverPreflightResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/takeover`);
+  const cachedPagePreflight = await fetch(`${baseUrl}/api/threads/thread-conflict/takeover`);
+  assert.equal(cachedPagePreflight.status, 409);
+  assert.equal((await cachedPagePreflight.json()).error.code, "takeover_client_outdated");
+  const cachedPageConfirmation = await fetch(`${baseUrl}/api/threads/thread-conflict/takeover`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: null }),
+  });
+  assert.equal(cachedPageConfirmation.status, 409);
+  assert.equal((await cachedPageConfirmation.json()).error.code, "takeover_client_outdated");
+  assert.equal((await (await fetch(`${baseUrl}/api/threads/thread-conflict/queue`)).json()).data[0].id, conflictQueued.queueId);
+  const takeoverPreflightResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/takeover`, { headers: TAKEOVER_HEADERS });
   assert.equal(takeoverPreflightResponse.status, 200);
   const takeoverPreflight = await takeoverPreflightResponse.json();
   assert.equal(takeoverPreflight.available, false);
@@ -249,7 +265,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const retryQueue = await retryQueueResponse.json();
   assert.equal(retryQueue.queued, true);
   const takeoverRequest = fetch(`${baseUrl}/api/threads/thread-conflict/takeover`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: null }),
+    method: "POST", headers: { ...TAKEOVER_HEADERS, "Content-Type": "application/json" }, body: JSON.stringify({ token: null }),
   });
   await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   await writeFile(join(temporary, "release-writer"), "released");
@@ -269,14 +285,14 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
   assert.equal(activeConflictResponse.status, 202);
   const activeConflictQueued = await activeConflictResponse.json();
-  const activeTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-active-conflict/takeover`);
+  const activeTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-active-conflict/takeover`, { headers: TAKEOVER_HEADERS });
   assert.equal(activeTakeoverResponse.status, 200);
   const activeTakeover = await activeTakeoverResponse.json();
   assert.equal(activeTakeover.available, false);
   assert.equal(activeTakeover.reason, "active_remote_turn");
   const activeTakeoverPost = await fetch(`${baseUrl}/api/threads/thread-active-conflict/takeover`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...TAKEOVER_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ token: null, owner: null }),
   });
   assert.equal(activeTakeoverPost.status, 409);
@@ -290,7 +306,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
   assert.equal(terminalConflictResponse.status, 202);
   const terminalConflictQueued = await terminalConflictResponse.json();
-  const terminalTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-terminal-conflict/takeover`);
+  const terminalTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-terminal-conflict/takeover`, { headers: TAKEOVER_HEADERS });
   assert.equal(terminalTakeoverResponse.status, 200);
   const terminalTakeover = await terminalTakeoverResponse.json();
   assert.equal(terminalTakeover.available, false);
@@ -304,7 +320,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
   assert.equal(notLoadedActiveResponse.status, 202);
   const notLoadedActiveQueued = await notLoadedActiveResponse.json();
-  const notLoadedActiveTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/takeover`);
+  const notLoadedActiveTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/takeover`, { headers: TAKEOVER_HEADERS });
   assert.equal(notLoadedActiveTakeoverResponse.status, 200);
   assert.equal((await notLoadedActiveTakeoverResponse.json()).reason, "active_remote_turn");
   await fetch(`${baseUrl}/api/threads/thread-notloaded-active-conflict/queue/${notLoadedActiveQueued.queueId}`, { method: "DELETE" });
@@ -316,14 +332,14 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   });
   assert.equal(unknownConflictResponse.status, 202);
   const unknownConflictQueued = await unknownConflictResponse.json();
-  const unknownTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/takeover`);
+  const unknownTakeoverResponse = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/takeover`, { headers: TAKEOVER_HEADERS });
   assert.equal(unknownTakeoverResponse.status, 200);
   const unknownTakeover = await unknownTakeoverResponse.json();
   assert.equal(unknownTakeover.available, false);
   assert.equal(unknownTakeover.reason, "thread_state_unknown");
   const unknownTakeoverPost = await fetch(`${baseUrl}/api/threads/thread-unknown-conflict/takeover`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...TAKEOVER_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ token: null, owner: null }),
   });
   assert.equal(unknownTakeoverPost.status, 409);

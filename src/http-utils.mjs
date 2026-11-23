@@ -115,7 +115,8 @@ export function serveStatic(request, response, publicDir, pathname, id) {
   } catch {
     throw new BridgeError("URL 路径无效", { status: 400, code: "invalid_path" });
   }
-  const requested = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
+  const requested = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "")
+    .replace(/^ui\/v2\/(?=app\.js$|modules\/[a-z0-9-]+\.js$)/, "");
   const filePath = resolve(publicDir, requested);
   const relativePath = relative(publicDir, filePath);
   if (relativePath.startsWith("..") || relativePath.includes(":") || !existsSync(filePath)) return false;

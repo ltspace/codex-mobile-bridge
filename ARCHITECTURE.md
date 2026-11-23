@@ -140,15 +140,20 @@ bounded to 100 entries with a seven-day expiry.
   time. Both steps require the target thread to be confirmed idle. The mutation
   repeats the complete Windows Restart Manager lock inventory immediately before
   termination and only stops a VS Code extension-owned `codex.exe app-server`
-  that owns this thread alone. Bridge descendants, shared writers, and every
-  unrecognized owner are refused.
+  that owns this thread alone. For Codex Desktop, the Bridge verifies that the
+  local app-tools pipe belongs to the owning Desktop package, then sends the
+  explicitly confirmed queue item to the same thread. An unconfirmed delivery
+  stays parked across restarts. Bridge descendants and unrecognized owners are
+  never stopped. Both takeover requests require a client capability header so
+  a cached client cannot display a process-stop confirmation for Desktop delivery.
 - SSE messages include monotonically increasing IDs, process instance identity,
   visible heartbeats, timestamps, method names, and params. Reconnecting clients
   replay the bounded recent window or perform an incremental history catch-up
   when the replay window cannot cover the gap.
 - Static assets use ETags, Brotli/gzip transfer compression, and a versioned
   service-worker app-shell cache. Navigations are network-first with a bounded
-  wait and an offline shell fallback; shell assets remain cache-first within one
+  wait and an offline shell fallback. Versioned script URLs let a fresh document
+  fetch its modules even while an older worker still controls the page. Shell assets remain cache-first within one
   version. API responses remain `no-store`; no conversation data enters the
   service-worker cache or HTML strings. A new worker follows the default waiting
   lifecycle and activates after all current clients close, preventing mixed

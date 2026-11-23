@@ -23,6 +23,7 @@ export const state = {
   activeTurns: {},
   queuedByThread: {},
   externalWriter: false,
+  desktopDispatchThread: null,
   activeTurnId: null,
   busy: false,
   submitting: false,

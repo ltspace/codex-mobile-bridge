@@ -4,6 +4,11 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Deliver a confirmed mobile queue item through the Windows Codex Desktop writer
+  without stopping the desktop process. Keep unconfirmed deliveries in the queue
+  without automatically retrying them.
+- Refresh versioned browser scripts across upgrades and reject takeover requests
+  from stale pages before they can show an incorrect process-stop confirmation.
 - Show desktop-pinned conversations above recent history in desktop order, including
   older pins beyond the first history page. Deduplicate search and paginated results,
   and refresh desktop pin changes on manual refresh, reconnect, and foreground return. Thanks to @shouhengwu for the initial contribution.

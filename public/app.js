@@ -811,31 +811,35 @@ async function takeoverConversation() {
   const threadId = selected.id;
   state.takingOver = true;
   updateComposer();
+  const headers = { "X-Codex-Bridge-Takeover": "2" };
   try {
-    const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { timeoutMs: 35_000 });
+    const preflight = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, { headers, timeoutMs: 35_000 });
     if (!preflight.available && preflight.reason !== "owner_missing") {
       showBanner(t(`takeover.${preflight.reason}`, {
         count: preflight.owner?.lockedThreadCount || 0,
       }));
       return;
     }
-    if (preflight.available && !window.confirm(t("takeover.confirm", {
+    if (preflight.available && !window.confirm(t(preflight.mode === "desktop" ? "takeover.desktopConfirm" : "takeover.confirm", {
       title: titleOf(selected),
       pid: preflight.owner?.pid || t("status.unknown"),
     }))) return;
 
     const result = await api(`/api/threads/${encodeURIComponent(threadId)}/takeover`, {
       method: "POST",
-      body: JSON.stringify({ token: preflight.token || null, owner: preflight.owner || null }),
+      headers,
+      body: JSON.stringify({ token: preflight.token || null, owner: preflight.owner || null, mode: preflight.mode, queueId: preflight.queueId }),
       timeoutMs: 75_000,
     });
-    if (!result.acquired || !result.turnId) throw new Error(t("errors.takeover_not_acquired"));
+    if (!result.handedOff && (!result.acquired || !result.turnId)) throw new Error(t("errors.takeover_not_acquired"));
+    if (result.handedOff) state.desktopDispatchThread = threadId;
     state.externalWriter = false;
     hideBanner();
-    toast(t("toast.takeoverComplete"));
+    toast(t(result.handedOff ? "toast.desktopDispatch" : "toast.takeoverComplete"));
     await syncSelectedThread();
   } catch (error) {
     const info = errorInfo(error);
+    if (info.code === "desktop_delivery_unconfirmed") await syncSelectedThread();
     showBanner(info.message, { retry: info.retryable ? takeoverConversation : null });
   } finally {
     state.takingOver = false;
@@ -1477,7 +1481,12 @@ setConnection(navigator.onLine ? "connecting" : "offline", false);
 renderThreadClientSwitch();
 renderMessages();
 connectEvents();
-setInterval(() => state.eventStream?.checkLiveness(), 15_000);
+setInterval(() => {
+  state.eventStream?.checkLiveness();
+  if (!document.hidden && state.connection === "online" && state.desktopDispatchThread === state.selected?.id) {
+    void syncSelectedThread();
+  }
+}, 15_000);
 void pwaController.start();
 
 const launchUrl = new URL(window.location.href);

@@ -112,3 +112,52 @@ test("queue removal or an unrelated active turn is not a delivery receipt", asyn
   store.removeQueuedMessage(item.id);
   await assert.rejects(service.confirmQueuedMessageStarted("thread-1", item.id), (error) => error.code === "takeover_not_acquired");
 });
+
+test("a Desktop writer receives only the confirmed queued message without stopping its process", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "bridge-desktop-delivery-"));
+  t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  await mkdir(join(directory, "thread-writer-locks"));
+  await writeFile(join(directory, "thread-writer-locks", "thread-1.lock"), "");
+  const owner = {
+    pid: 43210, parentPid: 43200, startedAt: "2026-09-03T00:00:00.000Z",
+    executablePath: "C:\\Users\\test\\AppData\\Local\\OpenAI\\Codex\\bin\\version\\codex.exe",
+    commandLine: "codex.exe app-server", threadIds: ["thread-1", "thread-2"], sharedOwner: true,
+  };
+  const sent = [];
+  const takeover = new ThreadTakeoverService({
+    platform: "win32", codexHome: directory, probeOwners: async () => [owner],
+    terminate: async () => assert.fail("Desktop must keep running"),
+    desktop: async (process, threadId, message) => {
+      assert.equal(process.parentPid, owner.parentPid);
+      assert.equal(threadId, "thread-1");
+      if (!message) return "ready";
+      sent.push(message.id);
+      return "accepted";
+    },
+  });
+  const { service, store, item } = await queueFixture(t, async () => assert.fail("must use Desktop's writer"));
+  const inspection = await takeover.inspect("thread-1");
+  assert.equal(inspection.mode, "desktop");
+  const claim = { token: inspection.token, pid: inspection.owner.pid, startedAt: inspection.owner.startedAt };
+  const forward = (message) => takeover.takeover("thread-1", { ...claim, desktopMessage: message });
+  await assert.rejects(service.handoffQueuedMessage("thread-1", "changed", forward), { code: "takeover_owner_changed" });
+  assert.deepEqual(await service.handoffQueuedMessage("thread-1", item.id, forward), { handedOff: true, queueId: item.id });
+  assert.equal(store.queuedMessageCount("thread-1"), 0);
+  assert.deepEqual(sent, [item.id]);
+});
+
+test("a Desktop delivery with no confirmation is preserved and is never retried after restart", async (t) => {
+  let starts = 0;
+  const { service, store, item } = await queueFixture(t, async () => { starts++; });
+  service.isDeploymentBlocked = () => true;
+  const unavailable = Object.assign(new Error("not sent"), { code: "desktop_delivery_unavailable" });
+  await assert.rejects(service.handoffQueuedMessage("thread-1", item.id, async () => { throw unavailable; }), unavailable);
+  assert.equal(store.peekQueuedMessage("thread-1").reason, "thread_in_use");
+  const uncertain = Object.assign(new Error("send outcome unknown"), { code: "desktop_delivery_unconfirmed" });
+  await assert.rejects(service.handoffQueuedMessage("thread-1", item.id, async () => { throw uncertain; }), uncertain);
+  service.stateStore = new BridgeStateStore(store.filePath);
+  service.isDeploymentBlocked = () => false;
+  service.resumeQueuedMessages();
+  assert.equal(service.stateStore.peekQueuedMessage("thread-1").reason, "desktop_delivery_unconfirmed");
+  assert.equal(starts, 0);
+});
