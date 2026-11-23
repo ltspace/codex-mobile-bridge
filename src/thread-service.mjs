@@ -8,9 +8,9 @@ import { compactTurnPage, deltaFromTurnPage, findThreadItem } from "./mobile-his
 const APPROVAL_METHODS = new Set([
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
-]);
-const USER_INPUT_METHOD = "item/tool/requestUserInput";
+]);const USER_INPUT_METHOD = "item/tool/requestUserInput";
 const THREAD_CLIENTS = new Set(["codex", "openclaw"]);
+const PINNED_THREAD_SECTION_ID = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 const MAX_TAKEOVER_ROLLOUT_TAIL_BYTES = 4 * 1024 * 1024;
 const MODEL_CATALOG_TTL_MS = 60_000;
 const OPENCLAW_PREVIEW_MARKERS = [
@@ -247,11 +247,14 @@ export class ThreadService {
     try {
       let cursor = null;
       let pinnedSection;
+      let namedPinnedSection;
       do {
         const result = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
-        pinnedSection = result.data?.find((section) => section.name === "Pinned");
+                pinnedSection = result.data?.find((section) => section.id === PINNED_THREAD_SECTION_ID);
+        namedPinnedSection ||= result.data?.find((section) => section.name === "Pinned");
         cursor = result.nextCursor || null;
       } while (!pinnedSection && cursor);
+      pinnedSection ||= namedPinnedSection;
 
       if (!pinnedSection) return { data: [], nextCursor: null };
       const threads = new Map();
@@ -291,6 +294,7 @@ export class ThreadService {
         sortKey,
         sortDirection: sortKey === "section_position" ? "asc" : "desc",
         sourceKinds: ["vscode", "appServer", "cli"],
+        modelProviders: [],
         archived: false,
         useStateDbOnly: true,
         ...(sectionId !== undefined ? { sectionId } : {}),
