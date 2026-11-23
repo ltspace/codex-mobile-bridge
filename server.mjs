@@ -13,7 +13,7 @@ import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 import { DeploymentGate } from "./src/deployment-gate.mjs";
 import { codexEnvironment } from "./src/codex-environment.mjs";
 
-const VERSION = "0.9.2";
+const VERSION = "0.9.3";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
