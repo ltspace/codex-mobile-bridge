@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 $global:LASTEXITCODE = 0
 . (Join-Path $PSScriptRoot 'bridge-common.ps1')
 
-if ($env:OS -ne 'Windows_NT') { throw 'setup.ps1 currently supports Windows only.' }
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'setup.ps1 currently supports Windows only.' }
 
 function Get-RequiredExecutable {
     param(
