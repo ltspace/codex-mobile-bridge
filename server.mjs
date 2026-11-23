@@ -213,6 +213,13 @@ async function handleApi(request, response, url, id) {
 
   const takeoverMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/takeover$/);
   if (takeoverMatch && ["GET", "POST"].includes(request.method)) {
+    // Older cached clients describe every successful preflight as a process stop.
+    if (request.headers["x-codex-bridge-takeover"] !== "2") {
+      throw new BridgeError("手机网页版本过旧，请刷新页面后再处理排队消息。", {
+        status: 409,
+        code: "takeover_client_outdated",
+      });
+    }
     const threadId = pathId(takeoverMatch);
     const queue = threads.queuedMessages(threadId);
     if (!queue.blockedByExternalWriter) {
@@ -245,15 +252,23 @@ async function handleApi(request, response, url, id) {
       });
     }
     if (request.method === "GET") {
-      json(response, 200, await takeover.inspect(threadId), id);
+      const inspection = await takeover.inspect(threadId);
+      json(response, 200, inspection.mode === "desktop" ? { ...inspection, queueId: queue.data[0].id } : inspection, id);
       return true;
     }
     const body = await readJson(request, MAX_BODY_BYTES);
-    const result = await takeover.takeover(threadId, {
+    const ownerClaim = {
       token: body.token,
       pid: body.owner?.pid,
       startedAt: body.owner?.startedAt,
-    });
+    };
+    if (body.mode === "desktop") {
+      const delivery = await threads.handoffQueuedMessage(threadId, body.queueId, (message) =>
+        takeover.takeover(threadId, { ...ownerClaim, desktopMessage: message }));
+      json(response, 200, delivery, id);
+      return true;
+    }
+    const result = await takeover.takeover(threadId, ownerClaim);
     const delivery = await threads.confirmQueuedMessageStarted(threadId, queue.data[0].id);
     logger.info("thread_takeover", {
       requestId: id,

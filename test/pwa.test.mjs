@@ -42,17 +42,21 @@ test("PWA behavior remains background-only without custom bars or install prompt
 });
 
 test("service worker shell is complete, versioned, and excludes private API data", async () => {
-  const [source, packageSource] = await Promise.all([
+  const [source, packageSource, pageSource] = await Promise.all([
     readFile(resolve(ROOT, "public", "service-worker.js"), "utf8"),
     readFile(resolve(ROOT, "package.json"), "utf8"),
+    readFile(resolve(ROOT, "public", "index.html"), "utf8"),
   ]);
   const shellBlock = source.match(/const SHELL = \[([\s\S]*?)\];/)?.[1] || "";
   const shellPaths = [...shellBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
   const packageVersion = JSON.parse(packageSource).version;
   assert.match(source, new RegExp(`const APP_VERSION = "${packageVersion.replaceAll(".", "\\.")}"`));
   assert.equal(shellPaths.some((path) => path.startsWith("/api/")), false);
+  assert.match(pageSource, /<script type="module" src="\/ui\/v2\/app\.js"/);
+  assert.ok(shellPaths.includes("/ui/v2/app.js"));
+  assert.equal(shellPaths.some((path) => path === "/app.js" || path.startsWith("/modules/")), false);
   for (const path of shellPaths.filter((path) => path !== "/")) {
-    assert.equal(existsSync(resolve(ROOT, "public", path.slice(1))), true, `missing shell asset ${path}`);
+    assert.equal(existsSync(resolve(ROOT, "public", path.replace(/^\/(?:ui\/v2\/)?/, ""))), true, `missing shell asset ${path}`);
   }
   const installBlock = source.slice(source.indexOf('self.addEventListener("install"'), source.indexOf('self.addEventListener("activate"'));
   assert.doesNotMatch(installBlock, /skipWaiting/);

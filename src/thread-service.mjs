@@ -634,7 +634,7 @@ export class ThreadService {
     const data = this.stateStore.queuedMessagesForThread(threadId);
     return {
       data,
-      blockedByExternalWriter: data.some((item) => item.reason === "thread_in_use"),
+      blockedByExternalWriter: data[0]?.reason === "thread_in_use",
     };
   }
 
@@ -659,6 +659,36 @@ export class ThreadService {
     this.eventHub.publish("bridge/messageQueueCancelled", { threadId, queueId, remaining });
     if (remaining > 0) this.#drainQueue(threadId);
     return { ok: true, queueId, remaining };
+  }
+
+  async handoffQueuedMessage(threadId, queueId, deliver) {
+    await this.queueDrains.get(threadId);
+    const item = this.stateStore.peekQueuedMessage(threadId);
+    if (!item || item.id !== queueId || item.reason !== "thread_in_use" || this.queueDrainItems.has(threadId)) {
+      throw new BridgeError("排队消息已变化，请重新确认", { status: 409, code: "takeover_owner_changed", retryable: true });
+    }
+    this.queueDrainItems.set(threadId, queueId);
+    try {
+      // Persist the hold before the side effect. An unconfirmed Desktop delivery must never be replayed after restart.
+      this.stateStore.updateQueuedMessage(queueId, { reason: "desktop_delivery_unconfirmed" });
+      try {
+        await deliver(item);
+      } catch (error) {
+        if (error.code !== "desktop_delivery_unconfirmed") {
+          this.stateStore.updateQueuedMessage(queueId, { reason: "thread_in_use" });
+        }
+        throw error;
+      }
+      this.stateStore.removeQueuedMessage(queueId);
+      this.queueRetryCounts.delete(threadId);
+      this.eventHub.publish("bridge/messageDequeued", {
+        threadId, queueId, handedOff: true, remaining: this.stateStore.queuedMessageCount(threadId),
+      });
+      return { handedOff: true, queueId };
+    } finally {
+      this.queueDrainItems.delete(threadId);
+      this.#drainQueue(threadId);
+    }
   }
 
   retryQueuedMessages(threadId) {
@@ -853,9 +883,9 @@ export class ThreadService {
 
   #drainQueue(threadId) {
     if (this.isDeploymentBlocked()) return;
-    if (!this.client.ready || this.activeTurns.has(threadId) || this.queueDrains.has(threadId)) return;
+    if (!this.client.ready || this.activeTurns.has(threadId) || this.queueDrains.has(threadId) || this.queueDrainItems.has(threadId)) return;
     const item = this.stateStore.peekQueuedMessage(threadId);
-    if (!item) return;
+    if (!item || item.reason === "desktop_delivery_unconfirmed") return;
     const timer = this.queueRetryTimers.get(threadId);
     if (timer) {
       clearTimeout(timer);

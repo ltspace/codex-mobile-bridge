@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Codex Bridge">
-  <script src="/modules/theme-init.js"></script>
+  <script src="/ui/v2/modules/theme-init.js"></script>
   <title>Codex Bridge</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -124,7 +124,7 @@
         <footer class="composer-wrap">
           <div id="takeoverBar" class="takeover-bar hidden" role="status">
             <div><strong data-i18n="takeover.title">Conversation held on desktop</strong><span data-i18n="takeover.description">A queued message is waiting for the desktop Codex writer.</span></div>
-            <button id="takeoverButton" class="takeover-button" type="button" data-i18n="actions.takeover">Take over</button>
+            <button id="takeoverButton" class="takeover-button" type="button" data-i18n="actions.takeover">Handle queued message</button>
           </div>
           <div id="composerHint" class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
           <form id="composer" class="composer">
@@ -186,6 +186,6 @@
   </div>
 
   <div id="toast" class="toast hidden" role="status"></div>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/ui/v2/app.js"></script>
 </body>
 </html>

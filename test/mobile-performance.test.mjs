@@ -172,7 +172,7 @@ test("external writer state exposes an explicit confirmed takeover action", asyn
   assert.match(page, /id="takeoverBar"[^>]+role="status"/);
   assert.match(page, /id="takeoverButton"/);
   assert.match(app, /state\.externalWriter/);
-  assert.match(app, /window\.confirm\(t\("takeover\.confirm"/);
+  assert.match(app, /window\.confirm\(t\(preflight\.mode === "desktop" \? "takeover\.desktopConfirm" : "takeover\.confirm"/);
   assert.match(app, /\/takeover`/);
   assert.match(styles, /\.takeover-button \{[^}]*min-height: 44px/);
 });

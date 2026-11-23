@@ -122,7 +122,7 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
     head.className = "message-head";
     const label = document.createElement("span");
     label.textContent = entry.queueId
-      ? `${t("message.you")} · ${t("message.queued")}`
+      ? `${t("message.you")} · ${t(entry.reason === "desktop_delivery_unconfirmed" ? "message.deliveryUnconfirmed" : "message.queued")}`
       : entry.role === "user" ? t("message.you") : "Codex";
     const copy = document.createElement("button");
     copy.type = "button";
@@ -136,7 +136,7 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
       const cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "message-cancel";
-      cancel.textContent = t("actions.cancelQueued");
+      cancel.textContent = t(entry.reason === "desktop_delivery_unconfirmed" ? "actions.dismissQueueRecord" : "actions.cancelQueued");
       cancel.disabled = Boolean(entry.cancelling);
       cancel.addEventListener("click", () => onCancelQueued?.(entry));
       head.append(cancel);
