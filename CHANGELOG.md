@@ -6,7 +6,7 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 No changes yet.
 
-## 0.9.3 - 2026-11-24
+## 0.8.2 - 2026-11-24
 
 - Deliver a confirmed mobile queue item through the Windows Codex Desktop writer
   without stopping the desktop process. Keep unconfirmed deliveries in the queue
@@ -17,6 +17,9 @@ No changes yet.
   older pins beyond the first history page. Deduplicate search and paginated results,
   and refresh desktop pin changes on manual refresh, reconnect, and foreground return.
   Thanks to @shouhengwu for the initial pinned-threads contribution.
+- Resolve externally owned `notLoaded` conversations from the latest turn-bearing
+  rollout record before takeover, while keeping active or unverifiable turns
+  fail-closed.
 
 ## 0.9.2 - 2026-10-28
 
@@ -82,14 +85,6 @@ No changes yet.
 
 - Render `<skill-citation>` metadata as a compact, expandable Skill card in
   assistant messages instead of exposing the raw metadata tags on mobile.
-
-## 0.8.2 - 2026-09-03
-
-### Fixed
-
-- Resolve externally owned `notLoaded` conversations from the latest
-  turn-bearing rollout record before takeover, allowing completed desktop
-  sessions to be released while active or unverifiable turns remain fail-closed.
 
 ## 0.8.1 - 2026-09-03
 

@@ -1,6 +1,6 @@
 {
   "name": "codex-mobile-bridge",
-  "version": "0.9.3",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "scripts": {
