@@ -143,6 +143,7 @@ function routeName(method, pathname) {
     "GET /api/metrics": "metrics",
     "GET /api/events": "events",
     "GET /api/threads": "thread_list",
+    "GET /api/pinned-threads": "thread_pinned_list",
     "POST /api/threads": "thread_create",
     "GET /api/models": "model_list",
     "GET /api/workspaces": "workspace_list",
@@ -280,13 +281,17 @@ async function handleApi(request, response, url, id) {
     });
   }
 
-  if (url.pathname === "/api/threads" && request.method === "GET") {
+  if (["/api/threads", "/api/pinned-threads"].includes(url.pathname) && request.method === "GET") {
     const cursor = url.searchParams.get("cursor");
     const searchTerm = url.searchParams.get("search")?.trim() || null;
     const threadClient = url.searchParams.get("client") || "codex";
     if (cursor && cursor.length > 4096) throw new BridgeError("分页游标无效", { status: 400, code: "invalid_cursor" });
     if (searchTerm && searchTerm.length > 200) throw new BridgeError("搜索内容过长", { status: 400, code: "invalid_search" });
-    json(response, 200, await threads.listThreads({ limit: queryLimit(url, 50, 100), cursor, searchTerm, client: threadClient }), id);
+    const options = { searchTerm, client: threadClient, refresh: url.searchParams.get("refresh") === "1" };
+    const result = url.pathname === "/api/pinned-threads"
+      ? await threads.listPinnedThreads(options)
+      : await threads.listThreads({ ...options, limit: queryLimit(url, 50, 100), cursor });
+    json(response, 200, result, id);
     return true;
   }
 
@@ -402,7 +407,7 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
     rejectCrossSiteMutation(request);
     if (url.pathname.startsWith("/api/")) {
-      const probe = request.method === "GET" && ["/api/health", "/api/metrics", "/api/events", "/api/models", "/api/threads"].includes(url.pathname);
+      const probe = request.method === "GET" && ["/api/health", "/api/metrics", "/api/events", "/api/models", "/api/threads", "/api/pinned-threads"].includes(url.pathname);
       if (!probe && deployment.snapshot().blocked) {
         throw new BridgeError("服务正在升级，请稍后重试", { status: 503, code: "bridge_updating", retryable: true });
       }

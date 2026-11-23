@@ -32,6 +32,10 @@ Server remain local to the Windows host.
   individual tool details on demand. Archive requests are serialized through a
   short-lived isolated App Server so recursive archive traversal cannot occupy
   the main interactive RPC channel.
+  Desktop pins are read from the built-in Pinned section through App Server and
+  exposed at `GET /api/pinned-threads` in section order. The browser loads pins
+  independently of recent-history pages and deduplicates threads by ID. Explicit
+  refreshes and foreground/reconnect reloads bypass the short-lived list cache.
 - `src/event-hub.mjs` fans App Server notifications out over SSE, emits visible
   heartbeat events, and retains a bounded replay window with per-process
   instance identity for reconnecting phones.

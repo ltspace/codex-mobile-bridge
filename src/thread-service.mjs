@@ -8,9 +8,9 @@ import { compactTurnPage, deltaFromTurnPage, findThreadItem } from "./mobile-his
 const APPROVAL_METHODS = new Set([
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
-]);
-const USER_INPUT_METHOD = "item/tool/requestUserInput";
+]);const USER_INPUT_METHOD = "item/tool/requestUserInput";
 const THREAD_CLIENTS = new Set(["codex", "openclaw"]);
+const PINNED_THREAD_SECTION_ID = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 const MAX_TAKEOVER_ROLLOUT_TAIL_BYTES = 4 * 1024 * 1024;
 const MODEL_CATALOG_TTL_MS = 60_000;
 const OPENCLAW_PREVIEW_MARKERS = [
@@ -215,26 +215,63 @@ export class ThreadService {
     };
   }
 
-  async listThreads({ limit = 50, cursor = null, searchTerm = null, client = "codex" } = {}) {
+  async listThreads({ limit = 50, cursor = null, searchTerm = null, client = "codex", sectionId, sortKey = "updated_at", refresh = false } = {}) {
     if (!THREAD_CLIENTS.has(client)) {
       throw new BridgeError("会话来源无效", { status: 400, code: "invalid_thread_client" });
     }
-    const cacheKey = !cursor && !searchTerm ? String(limit) : null;
+    const cacheKey = !cursor && !searchTerm ? JSON.stringify({ limit, sectionId, sortKey }) : null;
     const cached = cacheKey ? this.threadListCache.get(cacheKey) : null;
-    if (cached && cached.expiresAt > Date.now()) return filterThreadPage(cached.value, client);
-    if (cacheKey && this.threadListInflight.has(cacheKey)) {
+    if (!refresh && cached && cached.expiresAt > Date.now()) return filterThreadPage(cached.value, client);
+    if (!refresh && cacheKey && this.threadListInflight.has(cacheKey)) {
       return filterThreadPage(await this.threadListInflight.get(cacheKey), client);
     }
 
-    const load = this.#listThreads({ limit, cursor, searchTerm });
+    const load = this.#listThreads({ limit, cursor, searchTerm, sectionId, sortKey });
     if (!cacheKey) return filterThreadPage(await load, client);
     this.threadListInflight.set(cacheKey, load);
     try {
       const value = await load;
-      this.threadListCache.set(cacheKey, { value, expiresAt: Date.now() + 5_000 });
+      if (this.threadListInflight.get(cacheKey) === load) {
+        this.threadListCache.set(cacheKey, { value, expiresAt: Date.now() + 5_000 });
+      }
       return filterThreadPage(value, client);
     } finally {
-      this.threadListInflight.delete(cacheKey);
+      if (this.threadListInflight.get(cacheKey) === load) this.threadListInflight.delete(cacheKey);
+    }
+  }
+
+  async listPinnedThreads({ client = "codex", searchTerm = null, refresh = false } = {}) {
+    if (!THREAD_CLIENTS.has(client)) {
+      throw new BridgeError("会话来源无效", { status: 400, code: "invalid_thread_client" });
+    }
+    try {
+      let cursor = null;
+      let pinnedSection;
+      let namedPinnedSection;
+      do {
+        const result = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
+                pinnedSection = result.data?.find((section) => section.id === PINNED_THREAD_SECTION_ID);
+        namedPinnedSection ||= result.data?.find((section) => section.name === "Pinned");
+        cursor = result.nextCursor || null;
+      } while (!pinnedSection && cursor);
+      pinnedSection ||= namedPinnedSection;
+
+      if (!pinnedSection) return { data: [], nextCursor: null };
+      const threads = new Map();
+      cursor = null;
+      do {
+        const result = await this.listThreads({
+          limit: 100, cursor, searchTerm, client, refresh,
+          sectionId: pinnedSection.id, sortKey: "section_position",
+        });
+        for (const thread of result.data || []) threads.set(thread.id, thread);
+        cursor = result.nextCursor || null;
+      } while (cursor);
+      return { data: [...threads.values()], nextCursor: null };
+    } catch (error) {
+      // Older App Servers can still serve ordinary history without sections.
+      if (error?.code === -32601) return { data: [], nextCursor: null };
+      throw rpcFailure(error);
     }
   }
 
@@ -250,15 +287,17 @@ export class ThreadService {
     }
   }
 
-  async #listThreads({ limit, cursor, searchTerm, timeoutMs = 30_000 }) {
+  async #listThreads({ limit, cursor, searchTerm, sectionId, sortKey = "updated_at", timeoutMs = 30_000 }) {
     try {
       const result = await this.client.request("thread/list", {
         limit,
-        sortKey: "updated_at",
-        sortDirection: "desc",
+        sortKey,
+        sortDirection: sortKey === "section_position" ? "asc" : "desc",
         sourceKinds: ["vscode", "appServer", "cli"],
+        modelProviders: [],
         archived: false,
         useStateDbOnly: true,
+        ...(sectionId !== undefined ? { sectionId } : {}),
         ...(cursor ? { cursor } : {}),
         ...(searchTerm ? { searchTerm } : {}),
       }, timeoutMs);
@@ -727,7 +766,7 @@ export class ThreadService {
       void this.#releaseThread(threadId).finally(() => this.#drainQueue(threadId));
     }
     if (message.method === "thread/closed" && threadId) this.loadedThreads.delete(threadId);
-    if (/^(thread\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
+    if (/^(thread\/|threadSection\/|turn\/)/.test(message.method)) this.#invalidateThreadList();
     this.eventHub.publish(message.method, params);
   }
 
@@ -868,6 +907,7 @@ export class ThreadService {
 
   #invalidateThreadList() {
     this.threadListCache.clear();
+    this.threadListInflight.clear();
   }
 
   #eventClientsChanged(count) {

@@ -399,7 +399,7 @@ function closeDrawer() {
 
 function renderThreads() {
   elements.threadCount.textContent = t("threads.count", { count: state.threads.length });
-  const nodes = state.threads.map((thread) => {
+  const threadButton = (thread) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `thread-item${state.selected?.id === thread.id ? " active" : ""}`;
@@ -424,7 +424,26 @@ function renderThreads() {
     button.append(line, meta, cwd);
     button.addEventListener("click", () => selectThread(thread));
     return button;
-  });
+  };
+  const pinnedIds = new Set(state.pinnedThreadIds);
+  const pinned = state.threads.filter((thread) => pinnedIds.has(thread.id));
+  const recent = state.threads.filter((thread) => !pinnedIds.has(thread.id));
+  const nodes = [];
+  if (pinned.length) {
+    for (const [label, threads] of [["threads.pinned", pinned], ["threads.recent", recent]]) {
+      if (!threads.length) continue;
+      const group = document.createElement("section");
+      group.className = "thread-group";
+      group.setAttribute("aria-label", t(label));
+      const heading = document.createElement("h2");
+      heading.className = "thread-group-heading";
+      heading.textContent = t(label);
+      group.append(heading, ...threads.map(threadButton));
+      nodes.push(group);
+    }
+  } else {
+    nodes.push(...recent.map(threadButton));
+  }
   if (!nodes.length) {
     const empty = document.createElement("div");
     empty.className = "list-state";
@@ -439,8 +458,8 @@ function renderThreads() {
   elements.loadMoreThreads.textContent = state.threadsLoading ? t("actions.loading") : t("actions.loadMore");
 }
 
-async function loadThreads({ append = false, preserveSelection = true } = {}) {
-  if (state.threadsLoading) return;
+async function loadThreads({ append = false, preserveSelection = true, refresh = false } = {}) {
+  if (append && state.threadsLoading) return;
   const threadClient = state.threadClient;
   const requestVersion = ++state.threadsRequestVersion;
   state.threadsLoading = true;
@@ -453,11 +472,22 @@ async function loadThreads({ append = false, preserveSelection = true } = {}) {
     const query = new URLSearchParams({ limit: String(THREAD_PAGE_SIZE), client: threadClient });
     const search = elements.threadSearch.value.trim();
     if (search) query.set("search", search);
+    if (refresh) query.set("refresh", "1");
+    const pinnedQuery = new URLSearchParams(query);
     if (append && state.threadsCursor) query.set("cursor", state.threadsCursor);
-    const result = await api(`/api/threads?${query}`);
+    const [result, pinnedResult] = await Promise.all([
+      api(`/api/threads?${query}`),
+      append ? null : api(`/api/pinned-threads?${pinnedQuery}`).catch((error) => {
+        // Static files may update before an older running bridge is restarted.
+        if (error.status === 404) return { data: [] };
+        throw error;
+      }),
+    ]);
     if (requestVersion !== state.threadsRequestVersion || threadClient !== state.threadClient) return;
     const incoming = threadData(result);
-    const merged = append ? [...state.threads, ...incoming] : incoming;
+    const pinned = append ? [] : threadData(pinnedResult);
+    if (!append) state.pinnedThreadIds = pinned.map((thread) => thread.id);
+    const merged = append ? [...state.threads, ...incoming] : [...pinned, ...incoming];
     state.threads = [...new Map(merged.map((thread) => [thread.id, thread])).values()];
     state.threadsCursor = result.nextCursor || null;
     hideBanner();
@@ -470,7 +500,7 @@ async function loadThreads({ append = false, preserveSelection = true } = {}) {
   } catch (error) {
     if (requestVersion !== state.threadsRequestVersion || threadClient !== state.threadClient) return;
     const info = errorInfo(error);
-    showBanner(info.message, { retry: info.retryable ? () => loadThreads({ append }) : null });
+    showBanner(info.message, { retry: info.retryable ? () => loadThreads({ append, refresh }) : null });
   } finally {
     if (requestVersion === state.threadsRequestVersion) {
       state.threadsLoading = false;
@@ -493,6 +523,7 @@ function switchThreadClient(client, { reload = true } = {}) {
   state.threadsRequestVersion += 1;
   state.threadsLoading = false;
   state.threads = [];
+  state.pinnedThreadIds = [];
   state.threadsCursor = null;
   clearSelectedThread();
   renderThreadClientSwitch();
@@ -1291,7 +1322,9 @@ async function refreshHealth({ show = false } = {}) {
 function connectEvents() {
   state.eventStream = new EventStreamController({
     onOpen: () => {
+      const reconnecting = state.connection === "offline";
       setConnection(state.snapshot?.appServer?.degraded ? "degraded" : "online", true);
+      if (reconnecting) void loadThreads({ preserveSelection: true, refresh: true });
       void syncSelectedThread();
     },
     onEvent: handleEvent,
@@ -1309,7 +1342,7 @@ elements.actionDrawerBackdrop.addEventListener("click", () => closeActionDrawer(
 async function refreshAll() {
   elements.refreshButton.disabled = true;
   elements.drawerRefreshButton.disabled = true;
-  await Promise.all([loadThreads({ preserveSelection: true }), refreshHealth(), loadModels()]);
+  await Promise.all([loadThreads({ preserveSelection: true, refresh: true }), refreshHealth(), loadModels()]);
   if (state.selected) await selectThread(state.selected, { silent: true });
   elements.refreshButton.disabled = false;
   elements.drawerRefreshButton.disabled = false;
@@ -1396,6 +1429,7 @@ document.addEventListener("visibilitychange", () => {
   } else {
     state.eventStream?.start();
     refreshHealth();
+    void loadThreads({ preserveSelection: true, refresh: true });
     void syncSelectedThread();
     void pwaController.checkForUpdate();
   }
@@ -1403,6 +1437,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("online", () => {
   state.eventStream?.wake();
   void refreshHealth();
+  void loadThreads({ preserveSelection: true, refresh: true });
   void syncSelectedThread();
 });
 window.addEventListener("offline", () => setConnection("offline", false));

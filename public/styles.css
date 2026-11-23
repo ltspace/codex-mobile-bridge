@@ -236,6 +236,7 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .search-box input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; }
 .sidebar-summary { margin-top: 9px; display: flex; justify-content: space-between; color: var(--subtle); font-size: 11px; }
 .thread-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.thread-group-heading { margin: 0; padding: 10px 14px 7px; border-bottom: 1px solid var(--divider-soft); color: var(--muted); font-size: 11px; font-weight: 700; }
 .thread-item {
   width: 100%;
   min-height: 72px;

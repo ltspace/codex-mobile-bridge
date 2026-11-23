@@ -41,9 +41,23 @@ reader.on("line", (line) => {
         ],
       },
     ], nextCursor: null } });
+  } else if (method === "threadSection/list") {
+    send({ id, result: { data: [{ id: "section-pinned", name: "Pinned" }], nextCursor: null } });
   } else if (method === "thread/list") {
     if (params.useStateDbOnly !== true) {
       send({ id, error: { code: -32602, message: "thread/list must use the state DB fast path" } });
+      return;
+    }
+    if (params.sectionId === "section-pinned") {
+      if (params.sortKey !== "section_position" || params.sortDirection !== "asc") {
+        send({ id, error: { code: -32602, message: "pinned threads must use desktop section order" } });
+        return;
+      }
+      const data = [
+        { id: "pinned-old", name: "Older pinned fixture", cwd: process.cwd(), section: { id: "section-pinned", name: "Pinned" }, updatedAt: 1 },
+        { id: "thread-1", name: "Fixture thread", cwd: process.cwd(), section: { id: "section-pinned", name: "Pinned" }, updatedAt: 1_800_000_000 },
+      ].filter((thread) => !params.searchTerm || thread.name.includes(params.searchTerm));
+      send({ id, result: { data, nextCursor: null } });
       return;
     }
     send({ id, result: { data: [

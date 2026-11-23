@@ -73,6 +73,7 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(standbyWrite.status, 503);
   assert.equal((await standbyWrite.json()).error.code, "bridge_updating");
   assert.equal((await fetch(`${baseUrl}/api/models`)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/api/pinned-threads`)).status, 200);
   await writeFile(configPath, JSON.stringify({ localPort: port }));
   await writeFile(leasePath, JSON.stringify({ expiresAt: new Date(Date.now() + 60_000).toISOString() }));
   const drainedRead = await fetch(`${baseUrl}/api/threads/thread-1/queue`);
@@ -125,6 +126,14 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
   assert.equal(list.data.length, 6);
+  const pinned = await (await fetch(`${baseUrl}/api/pinned-threads?refresh=1`)).json();
+  assert.deepEqual(pinned.data.map((thread) => thread.id), ["pinned-old", "thread-1"]);
+  const searchedPins = await (await fetch(`${baseUrl}/api/pinned-threads?search=Older`)).json();
+  assert.deepEqual(searchedPins.data.map((thread) => thread.id), ["pinned-old"]);
+  const noOpenclawPins = await (await fetch(`${baseUrl}/api/pinned-threads?client=openclaw`)).json();
+  assert.deepEqual(noOpenclawPins.data, []);
+  const invalidPinnedClient = await fetch(`${baseUrl}/api/pinned-threads?client=other`);
+  assert.equal(invalidPinnedClient.status, 400);
   const openclawList = await (await fetch(`${baseUrl}/api/threads?client=openclaw`)).json();
   assert.equal(openclawList.data[0].id, "openclaw-1");
   assert.equal(openclawList.data.length, 1);
