@@ -7,6 +7,8 @@ import { ThreadService } from "../src/thread-service.mjs";
 import { EventHub } from "../src/event-hub.mjs";
 import { t } from "../public/modules/i18n.js";
 
+const PINNED_SECTION_ID = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
+
 function serviceFixture() {
   class Client extends EventEmitter {
     calls = [];
@@ -18,8 +20,8 @@ function serviceFixture() {
       this.calls.push({ method, params });
       if (method === "threadSection/list") {
         return params.cursor
-          ? { data: [{ id: "pins", name: "Pinned" }], nextCursor: null }
-          : { data: [{ id: "custom", name: "Custom" }], nextCursor: "sections-2" };
+          ? { data: [{ id: PINNED_SECTION_ID, name: "Pinned" }], nextCursor: null }
+          : { data: [{ id: "custom", name: "Pinned" }], nextCursor: "sections-2" };
       }
       assert.equal(method, "thread/list");
       let data = params.sectionId ? this.pins : [{ id: "recent", name: "Recent" }];
@@ -49,6 +51,7 @@ test("pinned history follows section order across every page, independent of rec
     assert.equal(params.sortDirection, "asc");
     assert.equal(params.useStateDbOnly, true);
     assert.equal(params.archived, false);
+    assert.deepEqual(params.modelProviders, []);
     assert.deepEqual(params.sourceKinds, ["vscode", "appServer", "cli"]);
   }
 });
