@@ -8,6 +8,8 @@ All notable changes to Codex Mobile Bridge are documented here.
   interactive logon.
 - Harden Windows setup against missing Tailscale Serve status fields and premature
   version-probe termination. Show Tailscale Serve activation instructions on startup.
+- Keep cached page HTML and browser modules on the same installed shell version
+  so updates do not mix newly fetched HTML with older cached scripts or translations.
 
 ## 0.8.2 - 2026-11-24
 
