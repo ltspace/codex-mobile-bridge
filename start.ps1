@@ -60,7 +60,8 @@ try {
     }
 
     if (-not $SkipServe) {
-        & $Config.TailscalePath serve --bg --yes --https=$($Config.HttpsPort) "http://127.0.0.1:$($Config.LocalPort)" | Out-Null
+        # Keep activation instructions visible when Serve is not enabled yet.
+        & $Config.TailscalePath serve --bg --yes --https=$($Config.HttpsPort) "http://127.0.0.1:$($Config.LocalPort)" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'Tailscale Serve setup failed.' }
         $TailnetStatus = & $Config.TailscalePath status --json | ConvertFrom-Json
         $DnsName = $TailnetStatus.Self.DNSName.TrimEnd('.')

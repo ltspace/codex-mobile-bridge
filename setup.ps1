@@ -62,13 +62,17 @@ function Get-TailscaleServeSnapshot([string]$TailscalePath) {
 }
 
 function Test-ServePortOwned([object]$Snapshot, [int]$Port, [int]$LocalPort, [object]$Existing) {
-    if (-not $Snapshot -or -not $Snapshot.TCP -or -not $Snapshot.TCP.PSObject.Properties[[string]$Port]) { return $true }
+    $Tcp = Get-BridgeConfigValue $Snapshot 'TCP'
+    if (-not $Tcp -or -not $Tcp.PSObject.Properties[[string]$Port]) { return $true }
     if ((Get-BridgeConfigValue $Existing 'httpsPort') -eq $Port) { return $true }
     $ExpectedProxy = "http://127.0.0.1:$LocalPort"
-    if ($Snapshot.Web) {
-        foreach ($Site in $Snapshot.Web.PSObject.Properties) {
-            if ($Site.Name -match ":$Port$" -and $Site.Value.Handlers -and $Site.Value.Handlers.PSObject.Properties['/']) {
-                if ($Site.Value.Handlers.'/'.Proxy -eq $ExpectedProxy) { return $true }
+    $Web = Get-BridgeConfigValue $Snapshot 'Web'
+    if ($Web) {
+        foreach ($Site in $Web.PSObject.Properties) {
+            $Handlers = Get-BridgeConfigValue $Site.Value 'Handlers'
+            $RootHandler = Get-BridgeConfigValue $Handlers '/'
+            if ($Site.Name -match ":$Port$" -and (Get-BridgeConfigValue $RootHandler 'Proxy') -eq $ExpectedProxy) {
+                return $true
             }
         }
     }
@@ -100,12 +104,20 @@ $NodePath = Get-RequiredExecutable 'Node.js' $NodePreferred @('node.exe', 'node'
 $TailscalePath = Get-RequiredExecutable 'Tailscale' $TailscalePreferred @('tailscale.exe', 'tailscale') @($DefaultTailscale)
 $CodexCommand = Get-RequiredExecutable 'Codex CLI' $CodexPreferred @('codex.cmd', 'codex') @($DefaultCodex)
 
-$NodeVersionText = (& $NodePath --version 2>&1 | Select-Object -First 1).ToString().Trim()
+# Let each native process finish before selecting its first output line. Selecting
+# inside the pipeline can stop it early and leave LASTEXITCODE set to -1.
+$NodeVersionOutput = @(& $NodePath --version 2>&1)
+$NodeVersionText = [string]($NodeVersionOutput | Select-Object -First 1)
+$NodeVersionText = $NodeVersionText.Trim()
 if ($LASTEXITCODE -ne 0 -or $NodeVersionText -notmatch '^v(?<major>\d+)\.') { throw 'Unable to determine the Node.js version.' }
 if ([int]$Matches.major -lt 20) { throw "Node.js 20 or newer is required; found $NodeVersionText." }
-$CodexVersion = (& $CodexCommand --version 2>&1 | Select-Object -First 1).ToString().Trim()
+$CodexVersionOutput = @(& $CodexCommand --version 2>&1)
+$CodexVersion = [string]($CodexVersionOutput | Select-Object -First 1)
+$CodexVersion = $CodexVersion.Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Codex CLI is installed but could not be started.' }
-$TailscaleVersion = (& $TailscalePath version 2>&1 | Select-Object -First 1).ToString().Trim()
+$TailscaleVersionOutput = @(& $TailscalePath version 2>&1)
+$TailscaleVersion = [string]($TailscaleVersionOutput | Select-Object -First 1)
+$TailscaleVersion = $TailscaleVersion.Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Tailscale is installed but could not be started.' }
 $TailnetStatus = (& $TailscalePath status --json 2>&1) -join "`n" | ConvertFrom-Json
 $BackendState = Get-BridgeConfigValue $TailnetStatus 'BackendState'

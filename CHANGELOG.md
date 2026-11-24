@@ -4,7 +4,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
-No changes yet.
+- Harden Windows setup against missing Tailscale Serve status fields and premature
+  version-probe termination. Show Tailscale Serve activation instructions on startup.
 
 ## 0.8.2 - 2026-11-24
 
