@@ -38,6 +38,7 @@ export const elements = {
   bannerClose: byId("bannerClose"),
   messages: byId("messages"),
   scrollBottom: byId("scrollBottom"),
+  scrollQuestion: byId("scrollQuestion"),
   requests: byId("requests"),
   takeoverBar: byId("takeoverBar"),
   takeoverButton: byId("takeoverButton"),
