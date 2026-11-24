@@ -4,7 +4,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
-No changes yet.
+- Add Pin conversation and Unpin conversation to the action menu in English and
+  Simplified Chinese, using the native desktop Pinned section ordering.
 
 ## 0.8.2 - 2026-11-24
 

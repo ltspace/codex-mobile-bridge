@@ -373,6 +373,7 @@ function openDrawer() {
 }
 
 function openActionDrawer() {
+  updateArchiveActions();
   closeDrawer();
   document.body.classList.add("action-drawer-open");
   elements.actionDrawer.inert = false;
@@ -704,7 +705,38 @@ function updateComposer() {
   renderModelControls();
 }
 
+const pinPending = new Set();
+
+async function toggleSelectedPin() {
+  const threadId = state.selected?.id;
+  if (!threadId || elements.drawerPinButton.disabled) return;
+  const pinned = !state.pinnedThreadIds.includes(threadId);
+  pinPending.add(threadId);
+  updateArchiveActions();
+  closeActionDrawer({ restoreFocus: true });
+  try {
+    await api(`/api/threads/${encodeURIComponent(threadId)}/pin`, {
+      method: "PATCH", body: JSON.stringify({ pinned }),
+    });
+    state.pinnedThreadIds = state.pinnedThreadIds.filter((id) => id !== threadId);
+    if (pinned) state.pinnedThreadIds.push(threadId);
+    renderThreads();
+    await loadThreads({ refresh: true });
+  } catch (error) {
+    showBanner(errorInfo(error).message);
+  } finally {
+    pinPending.delete(threadId);
+    updateArchiveActions();
+  }
+}
+
 function updateArchiveActions() {
+  const pinId = state.selected?.id;
+  const pinKey = state.pinnedThreadIds.includes(pinId) ? "actions.unpin" : "actions.pin";
+  elements.drawerPinLabel.dataset.i18n = pinKey;
+  elements.drawerPinLabel.textContent = t(pinKey);
+  elements.drawerPinButton.disabled = !pinId || state.selected?.localDraft || pinPending.has(pinId)
+    || !state.ready || ["offline", "degraded"].includes(state.connection);
   const threadId = state.selected?.id;
   const queued = threadId ? Number(state.queuedByThread[threadId] || 0) : 0;
   const disabled = !threadId || state.busy || state.submitting || state.connection === "degraded" || queued > 0;
@@ -1359,6 +1391,7 @@ elements.drawerRefreshButton.addEventListener("click", () => {
   void refreshAll();
 });
 elements.drawerArchiveThreadButton.addEventListener("click", archiveSelectedThread);
+elements.drawerPinButton.addEventListener("click", toggleSelectedPin);
 elements.drawerThemeButton.addEventListener("click", () => {
   toggleTheme();
   closeActionDrawer({ restoreFocus: true });

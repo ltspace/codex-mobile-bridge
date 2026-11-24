@@ -240,6 +240,35 @@ export class ThreadService {
     }
   }
 
+  async setThreadPinned(threadId, { pinned } = {}) {
+    if (typeof pinned !== "boolean") {
+      throw new BridgeError("置顶状态无效", { status: 400, code: "invalid_pin_state" });
+    }
+    try {
+      let sectionId = null;
+      if (pinned) {
+        let cursor = null;
+        do {
+          const page = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
+          sectionId = page.data?.find((section) => section.name === "Pinned")?.id || null;
+          cursor = page.nextCursor || null;
+        } while (!sectionId && cursor);
+        if (!sectionId) {
+          throw new BridgeError("置顶分区不可用，请先在桌面端置顶一个会话", { status: 409, code: "pin_unavailable" });
+        }
+      }
+      await this.client.request("thread/section/move", { threadId, sectionId });
+      this.#invalidateThreadList();
+      return { pinned };
+    } catch (error) {
+      if (error instanceof BridgeError) throw error;
+      if (error?.code === -32601) {
+        throw new BridgeError("当前 Codex 不支持置顶操作", { status: 409, code: "pin_unavailable" });
+      }
+      throw rpcFailure(error);
+    }
+  }
+
   async listPinnedThreads({ client = "codex", searchTerm = null, refresh = false } = {}) {
     if (!THREAD_CLIENTS.has(client)) {
       throw new BridgeError("会话来源无效", { status: 400, code: "invalid_thread_client" });

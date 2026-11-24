@@ -160,6 +160,7 @@ function routeName(method, pathname) {
   if (/^\/api\/threads\/[^/]+\/settings$/.test(pathname)) return "thread_settings_update";
   if (/^\/api\/threads\/[^/]+\/interrupt$/.test(pathname)) return "turn_interrupt";
   if (/^\/api\/threads\/[^/]+\/archive$/.test(pathname)) return "thread_archive";
+  if (/^\/api\/threads\/[^/]+\/pin$/.test(pathname)) return "thread_pin_update";
   if (/^\/api\/threads\/[^/]+$/.test(pathname)) return "thread_read";
   if (/^\/api\/requests\/[^/]+$/.test(pathname)) return "request_response";
   return pathname.startsWith("/api/") ? "api_unknown" : "static";
@@ -383,6 +384,11 @@ async function handleApi(request, response, url, id) {
     return true;
   }
 
+  const pinMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/pin$/);
+  if (pinMatch && request.method === "PATCH") {
+    json(response, 200, await threads.setThreadPinned(pathId(pinMatch), await readJson(request, MAX_BODY_BYTES)), id);
+    return true;
+  }
   const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/);
   if (threadMatch && request.method === "GET") {
     json(response, 200, await threads.getThread(pathId(threadMatch)), id);
