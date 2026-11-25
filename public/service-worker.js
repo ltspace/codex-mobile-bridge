@@ -1,6 +1,6 @@
 const APP_VERSION = "0.8.2";
 const CACHE_PREFIX = "codex-bridge-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v${APP_VERSION}-shell-consistency-ui-v2`;
+const CACHE_NAME = `${CACHE_PREFIX}v${APP_VERSION}-pin-actions-shell-consistency-ui-v2`;
 const NAVIGATION_TIMEOUT_MS = 3_500;
 const SHELL = [
   "/",
