@@ -240,6 +240,19 @@ export class ThreadService {
     }
   }
 
+  async #findPinnedSection() {
+    let cursor = null;
+    let namedPinnedSection = null;
+    do {
+      const result = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
+      const pinnedSection = result.data?.find((section) => section.id === PINNED_THREAD_SECTION_ID);
+      if (pinnedSection) return pinnedSection;
+      namedPinnedSection ||= result.data?.find((section) => section.name === "Pinned");
+      cursor = result.nextCursor || null;
+    } while (cursor);
+    return namedPinnedSection;
+  }
+
   async setThreadPinned(threadId, { pinned } = {}) {
     if (typeof pinned !== "boolean") {
       throw new BridgeError("置顶状态无效", { status: 400, code: "invalid_pin_state" });
@@ -247,15 +260,11 @@ export class ThreadService {
     try {
       let sectionId = null;
       if (pinned) {
-        let cursor = null;
-        do {
-          const page = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
-          sectionId = page.data?.find((section) => section.name === "Pinned")?.id || null;
-          cursor = page.nextCursor || null;
-        } while (!sectionId && cursor);
-        if (!sectionId) {
+        const pinnedSection = await this.#findPinnedSection();
+        if (!pinnedSection) {
           throw new BridgeError("置顶分区不可用，请先在桌面端置顶一个会话", { status: 409, code: "pin_unavailable" });
         }
+        sectionId = pinnedSection.id;
       }
       await this.client.request("thread/section/move", { threadId, sectionId });
       this.#invalidateThreadList();
@@ -274,20 +283,10 @@ export class ThreadService {
       throw new BridgeError("会话来源无效", { status: 400, code: "invalid_thread_client" });
     }
     try {
-      let cursor = null;
-      let pinnedSection;
-      let namedPinnedSection;
-      do {
-        const result = await this.client.request("threadSection/list", { limit: 100, ...(cursor ? { cursor } : {}) });
-                pinnedSection = result.data?.find((section) => section.id === PINNED_THREAD_SECTION_ID);
-        namedPinnedSection ||= result.data?.find((section) => section.name === "Pinned");
-        cursor = result.nextCursor || null;
-      } while (!pinnedSection && cursor);
-      pinnedSection ||= namedPinnedSection;
-
+      const pinnedSection = await this.#findPinnedSection();
       if (!pinnedSection) return { data: [], nextCursor: null };
       const threads = new Map();
-      cursor = null;
+      let cursor = null;
       do {
         const result = await this.listThreads({
           limit: 100, cursor, searchTerm, client, refresh,

@@ -35,21 +35,37 @@ function serviceFixture() {
   return { client, service };
 }
 
-test("pin mutations use native sections, validate state and report unavailable support", async () => {
+test("pin mutations use the built-in pinned section across pages, validate state and report unavailable support", async () => {
   const { client, service } = serviceFixture();
   const calls = [];
+  const sectionPages = [
+    { data: [{ id: "custom", name: "Pinned" }], nextCursor: "sections-2" },
+    { data: [{ id: PINNED_SECTION_ID, name: "Pinned" }], nextCursor: null },
+  ];
+  let pageIndex = 0;
   client.request = async (method, params) => {
     calls.push({ method, params });
-    if (method === "threadSection/list") return { data: [{ id: "pins", name: "Pinned" }] };
+    if (method === "threadSection/list") return sectionPages[pageIndex++] || { data: [], nextCursor: null };
     return {};
   };
+
   await service.setThreadPinned("A", { pinned: true });
-  assert.deepEqual(calls.at(-1), { method: "thread/section/move", params: { threadId: "A", sectionId: "pins" } });
+  assert.deepEqual(calls.at(-1), { method: "thread/section/move", params: { threadId: "A", sectionId: PINNED_SECTION_ID } });
+  assert.equal(calls.filter((call) => call.method === "threadSection/list").length, 2);
+
+  pageIndex = 0;
+  calls.length = 0;
   await service.setThreadPinned("A", { pinned: false });
   assert.deepEqual(calls.at(-1), { method: "thread/section/move", params: { threadId: "A", sectionId: null } });
+  assert.equal(calls.filter((call) => call.method === "threadSection/list").length, 0);
+
   await assert.rejects(service.setThreadPinned("A", { pinned: "true" }), { code: "invalid_pin_state" });
-  client.request = async () => ({ data: [] });
+
+  client.request = async (method) => method === "threadSection/list"
+    ? { data: [{ id: "custom", name: "Recent" }], nextCursor: null }
+    : {};
   await assert.rejects(service.setThreadPinned("A", { pinned: true }), { code: "pin_unavailable" });
+
   client.request = async () => { throw Object.assign(new Error("unsupported"), { code: -32601 }); };
   await assert.rejects(service.setThreadPinned("A", { pinned: false }), { code: "pin_unavailable" });
 });
