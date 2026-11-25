@@ -1,10 +1,30 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const MAX_DRAFTS = 100;
 const MAX_QUEUED_MESSAGES = 100;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const RENAME_RETRY_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+// Windows antivirus and indexers can briefly hold the destination or temporary
+// file open, which makes the atomic replace fail with EPERM/EBUSY. Retry with a
+// short backoff so a transient scan does not surface as a failed save.
+function renameWithRetry(source, destination, attempts = 10) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      renameSync(source, destination);
+      return;
+    } catch (error) {
+      if (attempt >= attempts || !RENAME_RETRY_CODES.has(error.code)) throw error;
+      sleepSync(10 * attempt);
+    }
+  }
+}
 
 export class BridgeStateStore {
   constructor(filePath) {
@@ -143,13 +163,18 @@ export class BridgeStateStore {
 
   #save() {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${process.pid}.tmp`;
+    const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     const payload = {
       version: 4,
       pendingFirstTurns: [...this.drafts].map(([threadId, createdAt]) => ({ threadId, createdAt })),
       queuedMessages: this.queuedMessages,
     };
     writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporary, this.filePath);
+    try {
+      renameWithRetry(temporary, this.filePath);
+    } catch (error) {
+      try { unlinkSync(temporary); } catch {}
+      throw error;
+    }
   }
 }
