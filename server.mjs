@@ -12,8 +12,8 @@ import { ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 import { DeploymentGate } from "./src/deployment-gate.mjs";
 import { codexEnvironment } from "./src/codex-environment.mjs";
+import { VERSION } from "./src/version.mjs";
 
-const VERSION = "0.8.2";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const STATE_FILE = process.env.BRIDGE_STATE_FILE || join(ROOT, "state", "bridge-state.json");
