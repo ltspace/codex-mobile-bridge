@@ -7,6 +7,8 @@ let draftId = 0;
 let turnId = 0;
 const threadSettings = new Map();
 const conflictThreads = new Set(String(process.env.FAKE_CODEX_CONFLICT_THREAD || "").split(",").filter(Boolean));
+const holdTurnThreads = new Set(String(process.env.FAKE_CODEX_HOLD_TURN_THREADS || "").split(",").filter(Boolean));
+const turnReleaseFile = process.env.FAKE_CODEX_TURN_RELEASE_FILE || "";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -150,10 +152,19 @@ reader.on("line", (line) => {
     const turn = { id: `turn-live-${turnId}`, status: "inProgress", items: [] };
     send({ id, result: { turn } });
     send({ method: "turn/started", params: { threadId: params.threadId, turn } });
-    setTimeout(() => {
+    const completeTurn = () => {
       send({ method: "item/agentMessage/delta", params: { threadId: params.threadId, turnId: turn.id, itemId: "item-live", delta: "done" } });
       send({ method: "turn/completed", params: { threadId: params.threadId, turn: { ...turn, status: "completed" } } });
-    }, Number(process.env.FAKE_CODEX_TURN_DELAY_MS || 100));
+    };
+    if (turnReleaseFile && holdTurnThreads.has(params.threadId)) {
+      const waitForRelease = () => {
+        if (existsSync(turnReleaseFile)) completeTurn();
+        else setTimeout(waitForRelease, 20);
+      };
+      waitForRelease();
+    } else {
+      setTimeout(completeTurn, Number(process.env.FAKE_CODEX_TURN_DELAY_MS || 100));
+    }
   } else if (method === "turn/steer") {
     send({ id, result: { turnId: params.expectedTurnId } });
   } else if (method === "turn/interrupt") {

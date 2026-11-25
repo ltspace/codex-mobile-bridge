@@ -45,6 +45,10 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
       CODEX_ARGS_JSON: JSON.stringify([join(ROOT, "test", "fake-codex.mjs")]),
       FAKE_CODEX_REQUIRE_ARCHIVE_CHANNEL: "1",
       FAKE_CODEX_ARCHIVE_DELAY_MS: "400",
+      // Hold the draft-1 turn until the archive assertion has run; the default
+      // 100ms completion races on loaded CI runners.
+      FAKE_CODEX_HOLD_TURN_THREADS: "draft-1",
+      FAKE_CODEX_TURN_RELEASE_FILE: join(temporary, "release-turn"),
       FAKE_CODEX_REQUIRE_MODEL_SETTINGS: "1",
       FAKE_CODEX_CONFLICT_RELEASE_FILE: join(temporary, "release-writer"),
       FAKE_CODEX_CONFLICT_THREAD: "thread-conflict,thread-active-conflict,thread-terminal-conflict,thread-notloaded-active-conflict,thread-unknown-conflict",
@@ -226,6 +230,10 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(activeQueue.data[0].text, "follow up");
   assert.equal(activeQueue.data[0].model, "gpt-6-astra");
   assert.equal(activeQueue.data[0].effort, "high");
+
+  // Release the held draft-1 turn now that the active-turn archive and queue
+  // assertions have run; the rest of the test expects it to drain normally.
+  await writeFile(join(temporary, "release-turn"), "released");
 
   const conflictResponse = await fetch(`${baseUrl}/api/threads/thread-conflict/send`, {
     method: "POST",
