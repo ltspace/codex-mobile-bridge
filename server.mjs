@@ -146,6 +146,7 @@ function routeName(method, pathname) {
     "GET /api/pinned-threads": "thread_pinned_list",
     "POST /api/threads": "thread_create",
     "GET /api/models": "model_list",
+    "GET /api/projects": "project_list",
     "GET /api/workspaces": "workspace_list",
     "GET /api/requests": "request_list",
   };
@@ -318,6 +319,11 @@ async function handleApi(request, response, url, id) {
 
   if (url.pathname === "/api/models" && request.method === "GET") {
     json(response, 200, await threads.models(), id);
+    return true;
+  }
+
+  if (url.pathname === "/api/projects" && request.method === "GET") {
+    json(response, 200, await threads.projects(), id);
     return true;
   }
 

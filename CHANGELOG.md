@@ -4,6 +4,10 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Default new conversations to the last successfully associated project when it
+  still exists; creating a projectless conversation does not erase that preference.
+- Select native desktop projects by name when creating conversations, or choose
+  No project. Projectless conversations use the user home as their runtime directory.
 - Start the watchdog at boot so the bridge recovers after a reboot without an
   interactive logon.
 - Harden Windows setup against missing Tailscale Serve status fields and premature

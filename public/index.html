@@ -144,13 +144,13 @@
   <div id="newThreadModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="newThreadTitle">
     <form id="newThreadForm" class="modal-card">
       <div class="modal-heading">
-        <div><h2 id="newThreadTitle" data-i18n="new.title">New conversation</h2><p data-i18n="new.description">Choose a working directory on this computer.</p></div>
+        <div><h2 id="newThreadTitle" data-i18n="new.title">New conversation</h2><p data-i18n="new.description">Choose a project or start without one.</p></div>
         <button id="closeNewThread" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close">×</button>
       </div>
       <div class="field">
-        <label for="newCwd" data-i18n="new.cwd">Working directory</label>
+        <label for="newCwd" data-i18n="new.cwd">Project</label>
         <div class="workspace-combobox">
-          <input id="newCwd" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="workspaceOptions" placeholder="C:\path\to\project" data-i18n-placeholder="new.cwdPlaceholder" autocomplete="off" required>
+          <button id="newCwd" type="button" role="combobox" aria-expanded="false" aria-controls="workspaceOptions" aria-label="Project" data-i18n-aria-label="new.cwd">No project</button>
           <button id="workspaceToggle" class="workspace-toggle" type="button" aria-label="Choose a recent directory" data-i18n-aria-label="new.chooseRecent" aria-expanded="false" aria-controls="workspaceOptions">⌄</button>
         </div>
         <div id="workspaceOptions" class="workspace-options hidden" role="listbox"></div>

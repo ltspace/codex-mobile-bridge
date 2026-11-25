@@ -502,3 +502,5 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .001ms !important; }
 }
+
+#newCwd { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }

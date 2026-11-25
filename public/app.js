@@ -1210,15 +1210,16 @@ function setWorkspaceOptionsOpen(open) {
 }
 
 function renderWorkspaceOptions() {
-  elements.workspaceOptions.replaceChildren(...recentWorkspaces.map(({ cwd }, index) => {
+  elements.workspaceOptions.replaceChildren(...recentWorkspaces.map(({ id, name }, index) => {
     const option = document.createElement("button");
     option.type = "button";
     option.className = `workspace-option${index === activeWorkspaceIndex ? " active" : ""}`;
     option.setAttribute("role", "option");
-    option.setAttribute("aria-selected", String(cwd === elements.newCwd.value));
-    option.textContent = cwd;
+    option.setAttribute("aria-selected", String(id === elements.newCwd.value));
+    option.textContent = name;
     option.addEventListener("click", () => {
-      elements.newCwd.value = cwd;
+      elements.newCwd.value = id;
+      elements.newCwd.textContent = name;
       setWorkspaceOptionsOpen(false);
       elements.workspaceToggle.focus();
     });
@@ -1248,19 +1249,23 @@ async function openNewThread() {
   elements.newThreadHint.className = "form-hint";
   elements.newThreadHint.textContent = t("new.loadingWorkspaces");
   renderNewModelControls({ preserve: false });
-  const remembered = localStorage.getItem("codexBridge.lastCwd") || state.selected?.cwd || "";
+  let remembered = state.selected?.projectId || "";
+  try { remembered = localStorage.getItem("codexBridge.lastProjectId") || remembered; } catch {}
   try {
-    const result = await api("/api/workspaces");
-    recentWorkspaces = result.data || [];
-    elements.newCwd.value = remembered || recentWorkspaces[0]?.cwd || "";
+    const result = await api("/api/projects");
+    recentWorkspaces = [{ id: "", name: t("new.noProject") }, ...(result.data || [])];
+    const selectedProject = recentWorkspaces.find((project) => project.id === remembered) || recentWorkspaces[0];
+    elements.newCwd.value = selectedProject.id;
+    elements.newCwd.textContent = selectedProject.name;
     renderWorkspaceOptions();
     elements.workspaceToggle.disabled = recentWorkspaces.length === 0;
     elements.newThreadHint.textContent = recentWorkspaces.length ? t("new.workspacesFound", { count: recentWorkspaces.length }) : t("new.enterAbsolute");
   } catch (error) {
-    recentWorkspaces = [];
+    recentWorkspaces = [{ id: "", name: t("new.noProject") }];
     renderWorkspaceOptions();
-    elements.workspaceToggle.disabled = true;
-    elements.newCwd.value = remembered;
+    elements.workspaceToggle.disabled = false;
+    elements.newCwd.value = "";
+    elements.newCwd.textContent = t("new.noProject");
     elements.newThreadHint.className = "form-hint error";
     elements.newThreadHint.textContent = errorInfo(error).message;
   }
@@ -1274,8 +1279,7 @@ function closeNewThread() {
 
 async function createThread(event) {
   event.preventDefault();
-  const cwd = elements.newCwd.value.trim();
-  if (!cwd) return;
+  const projectId = elements.newCwd.value || null;
   elements.createThreadButton.disabled = true;
   elements.newThreadHint.className = "form-hint";
   elements.newThreadHint.textContent = t("new.creating");
@@ -1283,7 +1287,7 @@ async function createThread(event) {
     const result = await api("/api/threads", {
       method: "POST",
       body: JSON.stringify({
-        cwd,
+        projectId,
         ephemeral: elements.ephemeralThread.checked,
         model: elements.newModelSelect.value || null,
         effort: elements.newEffortSelect.value || null,
@@ -1292,7 +1296,10 @@ async function createThread(event) {
     });
     const thread = threadObject(result);
     if (!thread.id) throw new Error(t("new.missingId"));
-    localStorage.setItem("codexBridge.lastCwd", cwd);
+    // Projectless conversations do not erase the last associated project.
+    if (projectId) {
+      try { localStorage.setItem("codexBridge.lastProjectId", projectId); } catch {}
+    }
     if (elements.newModelSelect.value) localStorage.setItem(MODEL_STORAGE_KEY, elements.newModelSelect.value);
     if (elements.newEffortSelect.value) localStorage.setItem(EFFORT_STORAGE_KEY, elements.newEffortSelect.value);
     if (state.threadClient !== "codex") switchThreadClient("codex", { reload: false });
@@ -1437,13 +1444,15 @@ elements.newThreadButton.addEventListener("click", openNewThread);
 elements.newThreadForm.addEventListener("submit", createThread);
 elements.newModelSelect.addEventListener("change", () => renderNewModelControls());
 elements.workspaceToggle.addEventListener("click", toggleWorkspaceOptions);
+elements.newCwd.addEventListener("click", toggleWorkspaceOptions);
 elements.newCwd.addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
     event.preventDefault();
     moveWorkspaceSelection(event.key === "ArrowDown" ? 1 : -1);
   } else if (event.key === "Enter" && workspaceOptionsOpen() && activeWorkspaceIndex >= 0) {
     event.preventDefault();
-    elements.newCwd.value = recentWorkspaces[activeWorkspaceIndex].cwd;
+    elements.newCwd.value = recentWorkspaces[activeWorkspaceIndex].id;
+    elements.newCwd.textContent = recentWorkspaces[activeWorkspaceIndex].name;
     setWorkspaceOptionsOpen(false);
   } else if (event.key === "Escape" && workspaceOptionsOpen()) {
     event.preventDefault();
