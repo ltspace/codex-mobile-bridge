@@ -3,9 +3,32 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { createPwaController } from "../public/modules/pwa.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
+
+test("navigation keeps the installed HTML with its cached translation modules", async () => {
+  const source = await readFile(resolve(ROOT, "public", "service-worker.js"), "utf8");
+  const handlers = {};
+  const installedPage = new Response("installed HTML with matching translation keys");
+  let networkReads = 0;
+  const context = vm.createContext({
+    self: { location: { origin: "https://fixture.invalid" }, addEventListener: (name, handler) => { handlers[name] = handler; } },
+    caches: { open: async () => ({ match: async (path) => path === "/index.html" ? installedPage : undefined }) },
+    fetch: async () => { networkReads += 1; return new Response("new HTML requiring new translations"); },
+    URL, Request, Response, setTimeout,
+  });
+  vm.runInContext(source, context);
+  let response;
+  handlers.fetch({
+    request: { method: "GET", mode: "navigate", url: "https://fixture.invalid/" },
+    respondWith: (value) => { response = value; },
+    waitUntil() {},
+  });
+  assert.equal(await response, installedPage);
+  assert.equal(networkReads, 0);
+});
 
 test("PWA controller registers once and checks for updates without UI", async () => {
   let registrations = 0;

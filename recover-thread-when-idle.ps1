@@ -23,6 +23,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'bridge-common.ps1')
 $ExpectedTurnIds = @($ExpectedTurnIdsCsv.Split(',', [StringSplitOptions]::RemoveEmptyEntries))
+$ExpectedVersion = Get-BridgeConfigValue (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'package.json') -Raw | ConvertFrom-Json) 'version'
+if (-not $ExpectedVersion) { throw 'The package version could not be determined.' }
 
 $Deadline = (Get-Date).AddMinutes($WaitTimeoutMinutes)
 $IdleObservations = 0
@@ -74,8 +76,9 @@ try {
 
     $Config = Get-BridgeConfig
     $Health = Get-BridgeHealth $Config 5
-    if (-not ($Health -and $Health.ready -and $Health.version -eq '0.8.4')) {
-        throw 'The repaired Bridge did not start as version 0.8.4.'
+    $StartedVersion = Get-BridgeConfigValue $Health 'version'
+    if (-not (Get-BridgeConfigValue $Health 'ready') -or $StartedVersion -ne $ExpectedVersion) {
+        throw "The repaired Bridge did not start as version $ExpectedVersion."
     }
     if (-not (Test-BridgeServe $Config)) { throw 'Tailscale Serve does not point to the repaired Bridge.' }
 

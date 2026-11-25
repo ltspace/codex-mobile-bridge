@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import readline from "node:readline";
+import { VERSION } from "./version.mjs";
 
 export class RpcError extends Error {
   constructor(method, error) {
@@ -187,7 +188,7 @@ export class CodexClient extends EventEmitter {
 
     try {
       const initialized = await this.#requestRaw("initialize", {
-        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: "0.8.2" },
+        clientInfo: { name: "codex_mobile_bridge", title: "Codex Mobile Bridge", version: VERSION },
         capabilities: { experimentalApi: true },
       }, this.initializeTimeoutMs);
       this.userAgent = initialized?.userAgent || null;

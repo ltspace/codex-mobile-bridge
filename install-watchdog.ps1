@@ -33,6 +33,7 @@ $Arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionP
 
 $Action = New-ScheduledTaskAction -Execute $PowerShellPath -Argument $Arguments -WorkingDirectory $Config.Root
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
+$BootTrigger = New-ScheduledTaskTrigger -AtStartup
 $PeriodicTrigger = New-ScheduledTaskTrigger -Once `
     -At ((Get-Date).AddMinutes(1)) `
     -RepetitionInterval (New-TimeSpan -Minutes 1) `
@@ -49,7 +50,7 @@ $Settings = New-ScheduledTaskSettingsSet `
 
 $Task = New-ScheduledTask `
     -Action $Action `
-    -Trigger @($LogonTrigger, $PeriodicTrigger) `
+    -Trigger @($BootTrigger, $LogonTrigger, $PeriodicTrigger) `
     -Principal $Principal `
     -Settings $Settings `
     -Description 'Runs a non-interactive Codex mobile bridge health and Tailscale Serve check every minute.'

@@ -4,6 +4,12 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Start the watchdog at boot so the bridge recovers after a reboot without an
+  interactive logon.
+- Harden Windows setup against missing Tailscale Serve status fields and premature
+  version-probe termination. Show Tailscale Serve activation instructions on startup.
+- Keep cached page HTML and browser modules on the same installed shell version
+  so updates do not mix newly fetched HTML with older cached scripts or translations.
 - Add Pin conversation and Unpin conversation to the action menu in English and
   Simplified Chinese, using the native desktop Pinned section ordering.
 
