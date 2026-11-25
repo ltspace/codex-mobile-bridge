@@ -4,6 +4,8 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Start the watchdog at boot so the bridge recovers after a reboot without an
+  interactive logon.
 - Harden Windows setup against missing Tailscale Serve status fields and premature
   version-probe termination. Show Tailscale Serve activation instructions on startup.
 
