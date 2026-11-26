@@ -135,6 +135,32 @@ test("bridge serves the UI and maps the Codex protocol", async (context) => {
   assert.equal(models.data[0].model, "gpt-6-astra");
   assert.deepEqual(models.data[0].supportedReasoningEfforts.map((option) => option.reasoningEffort), ["low", "medium", "high"]);
 
+  const readUsage = async () => {
+    const response = await fetch(`${baseUrl}/api/usage`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    return response.json();
+  };
+  const resetUsage = (attempt, headers = {}) => fetch(`${baseUrl}/api/usage/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(attempt),
+  });
+  const usage = await readUsage();
+  assert.deepEqual(usage, { availableCount: 2, reset: { idempotencyKey: usage.reset.idempotencyKey, creditId: "fixture-reset-credit" } });
+  assert.equal((await resetUsage(usage.reset, { "Sec-Fetch-Site": "cross-site" })).status, 403);
+  assert.equal((await resetUsage({ idempotencyKey: "invalid" })).status, 400);
+  assert.equal((await readUsage()).availableCount, 2);
+  const retries = await Promise.all([resetUsage(usage.reset), resetUsage(usage.reset)]);
+  for (const response of retries) assert.equal(response.status, 200);
+  const outcomes = await Promise.all(retries.map(async (response) => (await response.json()).outcome));
+  assert.deepEqual(outcomes.sort(), ["alreadyRedeemed", "reset"]);
+  const remainingUsage = await readUsage();
+  assert.equal(remainingUsage.availableCount, 1);
+  assert.deepEqual(Object.keys(remainingUsage.reset), ["idempotencyKey"]);
+  assert.deepEqual(await (await resetUsage(remainingUsage.reset)).json(), { outcome: "reset" });
+  assert.deepEqual(await readUsage(), { availableCount: 0, reset: null });
+
   const list = await (await fetch(`${baseUrl}/api/threads`)).json();
   assert.equal(list.data[0].id, "thread-1");
   assert.equal(list.data.length, 6);

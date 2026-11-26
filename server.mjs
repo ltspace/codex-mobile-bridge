@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +9,7 @@ import { json, readJson, rejectCrossSiteMutation, requestId, serveStatic } from 
 import { createLogger } from "./src/logger.mjs";
 import { BridgeMetrics } from "./src/metrics.mjs";
 import { BridgeStateStore } from "./src/state-store.mjs";
-import { ThreadService } from "./src/thread-service.mjs";
+import { rpcFailure, ThreadService } from "./src/thread-service.mjs";
 import { ThreadTakeoverService } from "./src/thread-takeover.mjs";
 import { DeploymentGate } from "./src/deployment-gate.mjs";
 import { codexEnvironment } from "./src/codex-environment.mjs";
@@ -146,6 +147,8 @@ function routeName(method, pathname) {
     "GET /api/pinned-threads": "thread_pinned_list",
     "POST /api/threads": "thread_create",
     "GET /api/models": "model_list",
+    "GET /api/usage": "usage_read",
+    "POST /api/usage/reset": "usage_reset",
     "GET /api/projects": "project_list",
     "GET /api/workspaces": "workspace_list",
     "GET /api/requests": "request_list",
@@ -179,6 +182,20 @@ function pathId(match, index = 1) {
     return value;
   } catch {
     throw new BridgeError("资源标识无效", { status: 400, code: "invalid_id" });
+  }
+}
+
+async function usageRequest(method, params) {
+  try {
+    return await client.request(method, params, 15_000);
+  } catch (error) {
+    if (error?.code === -32601 || (error?.code === -32600 && /unknown variant/i.test(error.message))) {
+      throw new BridgeError("This Codex App Server does not support usage resets", {
+        status: 501,
+        code: "usage_reset_unsupported",
+      });
+    }
+    throw rpcFailure(error);
   }
 }
 
@@ -319,6 +336,31 @@ async function handleApi(request, response, url, id) {
 
   if (url.pathname === "/api/models" && request.method === "GET") {
     json(response, 200, await threads.models(), id);
+    return true;
+  }
+
+  if (url.pathname === "/api/usage" && request.method === "GET") {
+    const result = await usageRequest("account/rateLimits/read");
+    const credits = result?.rateLimitResetCredits;
+    const availableCount = Number.isSafeInteger(credits?.availableCount) && credits.availableCount >= 0
+      ? credits.availableCount : null;
+    const creditId = Array.isArray(credits?.credits) ? credits.credits.find((credit) =>
+      credit?.status === "available" && typeof credit.id === "string" && credit.id.trim())?.id : undefined;
+    const reset = availableCount > 0 ? { idempotencyKey: randomUUID(), creditId } : null;
+    json(response, 200, { availableCount, reset }, id);
+    return true;
+  }
+
+  if (url.pathname === "/api/usage/reset" && request.method === "POST") {
+    const body = await readJson(request, MAX_BODY_BYTES);
+    const { idempotencyKey, creditId } = body || {};
+    if (typeof idempotencyKey !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)
+      || (creditId !== undefined && (typeof creditId !== "string" || !creditId.trim() || creditId.length > 4096))) {
+      throw new BridgeError("Invalid usage reset request", { status: 400, code: "invalid_usage_reset" });
+    }
+    const result = await usageRequest("account/rateLimitResetCredit/consume", { idempotencyKey, creditId });
+    json(response, 200, { outcome: result?.outcome }, id);
     return true;
   }
 
