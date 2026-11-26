@@ -13,6 +13,8 @@ All notable changes to Codex Mobile Bridge are documented here.
   without requiring tool details to be expanded.
 - Close the conversation sidebar without reloading or scrolling when its current
   conversation is selected again. Preserve loaded history, live text and drafts.
+- Restore the conversation list to its previous scroll position when clearing
+  search, including conversations reached through Load more conversations.
 - Start the watchdog at boot so the bridge recovers after a reboot without an
   interactive logon.
 - Harden Windows setup against missing Tailscale Serve status fields and premature

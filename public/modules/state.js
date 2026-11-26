@@ -7,6 +7,8 @@ export const state = {
   pinnedThreadIds: [],
   threadsCursor: null,
   threadsLoading: false,
+  threadsSearch: "",
+  unfilteredThreadList: null,
   threadsRequestVersion: 0,
   selected: null,
   models: [],

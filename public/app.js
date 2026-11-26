@@ -301,7 +301,9 @@ function updateSelectedSettings(threadId, model, effort) {
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { reasoningEffort: effort } : {}),
   };
-  state.threads = state.threads.map((thread) => thread.id === threadId ? { ...thread, ...changes } : thread);
+  for (const list of threadLists()) {
+    list.threads = list.threads.map((thread) => thread.id === threadId ? { ...thread, ...changes } : thread);
+  }
   if (state.selected?.id === threadId) state.selected = { ...state.selected, ...changes };
 }
 
@@ -399,11 +401,34 @@ function closeDrawer() {
   elements.menuButton.setAttribute("aria-expanded", "false");
 }
 
-function renderThreads() {
+function threadLists() {
+  return state.unfilteredThreadList ? [state, state.unfilteredThreadList] : [state];
+}
+
+function removeThreadFromLists(threadId) {
+  for (const list of threadLists()) {
+    list.threads = list.threads.filter((thread) => thread.id !== threadId);
+    list.pinnedThreadIds = list.pinnedThreadIds.filter((id) => id !== threadId);
+  }
+}
+
+function threadListPosition() {
+  const list = elements.threadList;
+  const scrollTop = list.scrollTop;
+  if (scrollTop <= 0) return { scrollTop };
+  const top = list.getBoundingClientRect().top;
+  const row = [...list.querySelectorAll(".thread-item")].find((button) => button.getBoundingClientRect().bottom > top);
+  return { scrollTop, threadId: row?.dataset.threadId, offset: row ? row.getBoundingClientRect().top - top : 0 };
+}
+
+function renderThreads(position = null) {
+  const list = elements.threadList;
+  const previousTop = position?.scrollTop ?? list.scrollTop;
   elements.threadCount.textContent = t("threads.count", { count: state.threads.length });
   const threadButton = (thread) => {
     const button = document.createElement("button");
     button.type = "button";
+    button.dataset.threadId = thread.id;
     button.className = `thread-item${state.selected?.id === thread.id ? " active" : ""}`;
     const line = document.createElement("span");
     line.className = "thread-line";
@@ -452,30 +477,61 @@ function renderThreads() {
   if (!nodes.length) {
     const empty = document.createElement("div");
     empty.className = "list-state";
-    empty.textContent = elements.threadSearch.value.trim()
-      ? t("threads.noMatches")
-      : t(state.threadClient === "openclaw" ? "threads.noneOpenClaw" : "threads.none");
+    empty.textContent = t(state.threadsLoading ? "threads.loading" : state.threadsSearch
+      ? "threads.noMatches" : state.threadClient === "openclaw" ? "threads.noneOpenClaw" : "threads.none");
     nodes.push(empty);
   }
-  elements.threadList.replaceChildren(...nodes);
+  list.replaceChildren(...nodes);
   elements.loadMoreThreads.classList.toggle("hidden", !state.threadsCursor);
   elements.loadMoreThreads.disabled = state.threadsLoading;
   elements.loadMoreThreads.textContent = state.threadsLoading ? t("actions.loading") : t("actions.loadMore");
+  const anchor = position?.threadId && [...list.querySelectorAll(".thread-item")]
+    .find((button) => button.dataset.threadId === position.threadId);
+  list.scrollTop = anchor
+    ? list.scrollTop + anchor.getBoundingClientRect().top - list.getBoundingClientRect().top - position.offset
+    : previousTop;
 }
 
-async function loadThreads({ append = false, preserveSelection = true, refresh = false } = {}) {
-  if (append && state.threadsLoading) return;
+async function loadThreads({ append = false, preserveSelection = true, refresh = false, preserveLoaded = false } = {}) {
+  const search = elements.threadSearch.value.trim();
+  const previousSearch = state.threadsSearch;
+  if (append && (state.threadsLoading || search !== previousSearch || !state.threadsCursor)) return;
+  if (preserveLoaded && state.threadsLoading && search === previousSearch) return;
   const threadClient = state.threadClient;
   const requestVersion = ++state.threadsRequestVersion;
-  state.threadsLoading = true;
-  if (!append) {
-    state.threadsCursor = null;
-    if (!state.threads.length) elements.threadList.replaceChildren(listState(t("threads.loading")));
+  if (search !== previousSearch) {
+    state.threadsSearch = search;
+    if (!previousSearch && state.threads.length) {
+      state.unfilteredThreadList = {
+        threads: state.threads,
+        pinnedThreadIds: state.pinnedThreadIds,
+        cursor: state.threadsCursor,
+        position: threadListPosition(),
+      };
+    }
+    const saved = state.unfilteredThreadList;
+    if (!search && saved) {
+      state.unfilteredThreadList = null;
+      state.threads = saved.threads;
+      state.pinnedThreadIds = saved.pinnedThreadIds;
+      state.threadsCursor = saved.cursor;
+      state.threadsLoading = false;
+      hideBanner();
+      renderThreads(saved.position);
+      if (!refresh && preserveSelection) return;
+      preserveLoaded = true;
+    } else {
+      state.threads = [];
+      state.pinnedThreadIds = [];
+      state.threadsCursor = null;
+      preserveLoaded = false;
+    }
   }
+  const keepPages = preserveLoaded && state.threads.length > 0;
+  state.threadsLoading = true;
   renderThreads();
   try {
     const query = new URLSearchParams({ limit: String(THREAD_PAGE_SIZE), client: threadClient });
-    const search = elements.threadSearch.value.trim();
     if (search) query.set("search", search);
     if (refresh) query.set("refresh", "1");
     const pinnedQuery = new URLSearchParams(query);
@@ -491,10 +547,15 @@ async function loadThreads({ append = false, preserveSelection = true, refresh =
     if (requestVersion !== state.threadsRequestVersion || threadClient !== state.threadClient) return;
     const incoming = threadData(result);
     const pinned = append ? [] : threadData(pinnedResult);
+    const merged = new Map([...(append ? state.threads : pinned), ...incoming].map((thread) => [thread.id, thread]));
+    if (keepPages && !append) {
+      const oldPins = new Set(state.pinnedThreadIds);
+      for (const thread of state.threads) {
+        if (!merged.has(thread.id) && !oldPins.has(thread.id)) merged.set(thread.id, thread);
+      }
+    } else state.threadsCursor = result.nextCursor || null;
     if (!append) state.pinnedThreadIds = pinned.map((thread) => thread.id);
-    const merged = append ? [...state.threads, ...incoming] : [...pinned, ...incoming];
-    state.threads = [...new Map(merged.map((thread) => [thread.id, thread])).values()];
-    state.threadsCursor = result.nextCursor || null;
+    state.threads = [...merged.values()];
     hideBanner();
     if (!preserveSelection || !state.selected) {
       if (state.threads[0]) await selectThread(state.threads[0]);
@@ -509,7 +570,7 @@ async function loadThreads({ append = false, preserveSelection = true, refresh =
   } finally {
     if (requestVersion === state.threadsRequestVersion) {
       state.threadsLoading = false;
-      renderThreads();
+      renderThreads(keepPages ? threadListPosition() : null);
     }
   }
 }
@@ -525,8 +586,11 @@ function renderThreadClientSwitch() {
 function switchThreadClient(client, { reload = true } = {}) {
   if (!["codex", "openclaw"].includes(client) || state.threadClient === client) return;
   state.threadClient = client;
+  clearTimeout(state.searchTimer);
   state.threadsRequestVersion += 1;
   state.threadsLoading = false;
+  state.threadsSearch = "";
+  state.unfilteredThreadList = null;
   state.threads = [];
   state.pinnedThreadIds = [];
   state.threadsCursor = null;
@@ -534,13 +598,6 @@ function switchThreadClient(client, { reload = true } = {}) {
   renderThreadClientSwitch();
   renderThreads();
   if (reload) void loadThreads({ preserveSelection: false });
-}
-
-function listState(text) {
-  const node = document.createElement("div");
-  node.className = "list-state";
-  node.textContent = text;
-  return node;
 }
 
 async function selectThread(summary, { isNew = false, silent = false } = {}) {
@@ -711,10 +768,14 @@ function updateComposer() {
 
 const pinPending = new Set();
 
+function isThreadPinned(threadId) {
+  return threadLists().some((list) => list.pinnedThreadIds.includes(threadId));
+}
+
 async function toggleSelectedPin() {
   const threadId = state.selected?.id;
   if (!threadId || elements.drawerPinButton.disabled) return;
-  const pinned = !state.pinnedThreadIds.includes(threadId);
+  const pinned = !isThreadPinned(threadId);
   pinPending.add(threadId);
   updateArchiveActions();
   closeActionDrawer({ restoreFocus: true });
@@ -722,8 +783,10 @@ async function toggleSelectedPin() {
     await api(`/api/threads/${encodeURIComponent(threadId)}/pin`, {
       method: "PATCH", body: JSON.stringify({ pinned }),
     });
-    state.pinnedThreadIds = state.pinnedThreadIds.filter((id) => id !== threadId);
-    if (pinned) state.pinnedThreadIds.push(threadId);
+    for (const list of threadLists()) {
+      list.pinnedThreadIds = list.pinnedThreadIds.filter((id) => id !== threadId);
+      if (pinned) list.pinnedThreadIds.push(threadId);
+    }
     renderThreads();
     await loadThreads({ refresh: true });
   } catch (error) {
@@ -736,7 +799,7 @@ async function toggleSelectedPin() {
 
 function updateArchiveActions() {
   const pinId = state.selected?.id;
-  const pinKey = state.pinnedThreadIds.includes(pinId) ? "actions.unpin" : "actions.pin";
+  const pinKey = isThreadPinned(pinId) ? "actions.unpin" : "actions.pin";
   elements.drawerPinLabel.dataset.i18n = pinKey;
   elements.drawerPinLabel.textContent = t(pinKey);
   elements.drawerPinButton.disabled = !pinId || state.selected?.localDraft || pinPending.has(pinId)
@@ -934,7 +997,7 @@ async function archiveSelectedThread() {
   updateComposer();
   try {
     await api(`/api/threads/${encodeURIComponent(threadId)}/archive`, { method: "POST" });
-    state.threads = state.threads.filter((thread) => thread.id !== threadId);
+    removeThreadFromLists(threadId);
     delete state.queuedByThread[threadId];
     try { localStorage.removeItem(draftKey(threadId)); } catch {}
     if (state.selected?.id === threadId) clearSelectedThread();
@@ -1020,7 +1083,7 @@ function handleEvent(event) {
     return;
   }
   if (method === "thread/archived" && threadId && threadId !== archivingThreadId) {
-    state.threads = state.threads.filter((thread) => thread.id !== threadId);
+    removeThreadFromLists(threadId);
     if (state.selected?.id === threadId) {
       clearSelectedThread();
       void loadThreads({ preserveSelection: false });
@@ -1326,7 +1389,9 @@ async function createThread(event) {
     if (elements.newModelSelect.value) localStorage.setItem(MODEL_STORAGE_KEY, elements.newModelSelect.value);
     if (elements.newEffortSelect.value) localStorage.setItem(EFFORT_STORAGE_KEY, elements.newEffortSelect.value);
     if (state.threadClient !== "codex") switchThreadClient("codex", { reload: false });
-    state.threads = [thread, ...state.threads.filter((item) => item.id !== thread.id)];
+    for (const list of threadLists()) {
+      list.threads = [thread, ...list.threads.filter((item) => item.id !== thread.id)];
+    }
     closeNewThread();
     await selectThread(thread, { isNew: true });
   } catch (error) {
@@ -1390,7 +1455,7 @@ function connectEvents() {
     onOpen: () => {
       const reconnecting = state.connection === "offline";
       setConnection(state.snapshot?.appServer?.degraded ? "degraded" : "online", true);
-      if (reconnecting) void loadThreads({ preserveSelection: true, refresh: true });
+      if (reconnecting) void loadThreads({ preserveSelection: true, refresh: true, preserveLoaded: !state.threadsSearch });
       void syncSelectedThread();
     },
     onEvent: handleEvent,
@@ -1439,7 +1504,10 @@ elements.openclawThreadFilter.addEventListener("click", () => switchThreadClient
 elements.loadMoreThreads.addEventListener("click", () => loadThreads({ append: true }));
 elements.threadSearch.addEventListener("input", () => {
   clearTimeout(state.searchTimer);
-  state.searchTimer = setTimeout(() => loadThreads({ preserveSelection: true }), 320);
+  const search = elements.threadSearch.value.trim();
+  if (search === state.threadsSearch) return;
+  if (!search) void loadThreads();
+  else state.searchTimer = setTimeout(() => loadThreads(), 320);
 });
 elements.bannerClose.addEventListener("click", hideBanner);
 elements.bannerRetry.addEventListener("click", () => state.retryAction?.());
@@ -1498,7 +1566,7 @@ document.addEventListener("visibilitychange", () => {
   } else {
     state.eventStream?.start();
     refreshHealth();
-    void loadThreads({ preserveSelection: true, refresh: true });
+    void loadThreads({ preserveSelection: true, refresh: true, preserveLoaded: !state.threadsSearch });
     void syncSelectedThread();
     void pwaController.checkForUpdate();
   }
@@ -1506,7 +1574,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("online", () => {
   state.eventStream?.wake();
   void refreshHealth();
-  void loadThreads({ preserveSelection: true, refresh: true });
+  void loadThreads({ preserveSelection: true, refresh: true, preserveLoaded: !state.threadsSearch });
   void syncSelectedThread();
 });
 window.addEventListener("offline", () => setConnection("offline", false));
