@@ -1337,6 +1337,91 @@ async function createThread(event) {
   }
 }
 
+const USAGE_RESET_STORAGE_KEY = "codexBridge.pendingUsageReset";
+let pendingUsageReset = null;
+try {
+  pendingUsageReset = JSON.parse(sessionStorage.getItem(USAGE_RESET_STORAGE_KEY));
+} catch {}
+let usageSnapshot = null;
+let usageBusy = false;
+let usageAvailability = "usage.loading";
+let usageFeedback = pendingUsageReset ? "usage.unknown" : null;
+
+function renderUsage() {
+  elements.usageAvailability.textContent = t(usageAvailability, { count: usageSnapshot?.availableCount });
+  elements.usageFeedback.textContent = usageFeedback ? t(usageFeedback) : "";
+  elements.usageFeedback.classList.toggle("hidden", !usageFeedback);
+  elements.refreshUsage.disabled = usageBusy;
+  elements.resetUsage.disabled = usageBusy || (!pendingUsageReset && !usageSnapshot?.reset);
+  elements.resetUsage.textContent = t(pendingUsageReset && !usageBusy ? "usage.retry" : "usage.title");
+}
+
+function usageUnsupported(error) {
+  return error.status === 404 || error.bridgeError?.code === "usage_reset_unsupported";
+}
+
+async function loadUsage() {
+  if (usageBusy) return;
+  usageBusy = true;
+  usageSnapshot = null;
+  usageAvailability = "usage.loading";
+  renderUsage();
+  try {
+    usageSnapshot = await api("/api/usage");
+    usageAvailability = usageSnapshot.availableCount == null ? "usage.unavailable" : "usage.available";
+  } catch (error) {
+    usageAvailability = usageUnsupported(error) ? "usage.unavailable" : "usage.readFailed";
+  } finally {
+    usageBusy = false;
+    renderUsage();
+  }
+}
+
+function finishUsageReset() {
+  pendingUsageReset = null;
+  try { sessionStorage.removeItem(USAGE_RESET_STORAGE_KEY); } catch {}
+}
+
+async function resetUsage() {
+  const attempt = pendingUsageReset || usageSnapshot?.reset;
+  if (usageBusy || !attempt) return;
+  if (!pendingUsageReset && !window.confirm(t("usage.confirm"))) return;
+  pendingUsageReset = attempt;
+  try { sessionStorage.setItem(USAGE_RESET_STORAGE_KEY, JSON.stringify(attempt)); } catch {}
+  usageBusy = true;
+  usageFeedback = "usage.resetting";
+  renderUsage();
+  try {
+    const { outcome } = await api("/api/usage/reset", { method: "POST", body: JSON.stringify(attempt) });
+    if (["reset", "alreadyRedeemed", "noCredit", "nothingToReset"].includes(outcome)) {
+      finishUsageReset();
+      usageFeedback = outcome === "alreadyRedeemed" ? "usage.reset" : `usage.${outcome}`;
+    } else {
+      usageFeedback = "usage.unknown";
+    }
+  } catch (error) {
+    if (usageUnsupported(error)) {
+      finishUsageReset();
+      usageSnapshot = null;
+      usageAvailability = "usage.unavailable";
+      usageFeedback = null;
+      usageBusy = false;
+      renderUsage();
+      return;
+    }
+    usageFeedback = "usage.unknown";
+  }
+  usageBusy = false;
+  await loadUsage();
+}
+
+function openUsage() {
+  closeActionDrawer();
+  if (!usageBusy && !pendingUsageReset) usageFeedback = null;
+  elements.usageModal.showModal();
+  void loadUsage();
+}
+
 function statusRows(snapshot) {
   const appServer = snapshot?.appServer || {};
   const http = snapshot?.metrics?.http || {};
@@ -1420,6 +1505,7 @@ elements.drawerRefreshButton.addEventListener("click", () => {
   closeActionDrawer({ restoreFocus: true });
   void refreshAll();
 });
+elements.drawerUsageButton?.addEventListener("click", openUsage);
 elements.drawerArchiveThreadButton.addEventListener("click", archiveSelectedThread);
 elements.drawerPinButton.addEventListener("click", toggleSelectedPin);
 elements.drawerThemeButton.addEventListener("click", () => {
@@ -1485,6 +1571,11 @@ elements.newCwd.addEventListener("keydown", (event) => {
 elements.closeNewThread.addEventListener("click", closeNewThread);
 elements.cancelNewThread.addEventListener("click", closeNewThread);
 elements.newThreadModal.addEventListener("click", (event) => { if (event.target === elements.newThreadModal) closeNewThread(); });
+elements.closeUsage?.addEventListener("click", () => elements.usageModal.close());
+elements.refreshUsage?.addEventListener("click", loadUsage);
+elements.resetUsage?.addEventListener("click", resetUsage);
+elements.usageModal?.addEventListener("click", (event) => { if (event.target === elements.usageModal) elements.usageModal.close(); });
+elements.usageModal?.addEventListener("close", () => elements.actionMenuButton.focus());
 elements.connectionButton.addEventListener("click", () => {
   closeActionDrawer();
   refreshHealth({ show: true });
@@ -1540,6 +1631,7 @@ document.addEventListener("bridge:languagechange", () => {
     elements.chatMeta.textContent = t(state.threadClient === "openclaw" ? "threads.selectHelpOpenClaw" : "threads.selectHelp");
   }
   if (!elements.connectionModal.classList.contains("hidden")) renderConnectionDetails(state.snapshot);
+  if (elements.usageModal?.open) renderUsage();
 });
 
 setConnection(navigator.onLine ? "connecting" : "offline", false);

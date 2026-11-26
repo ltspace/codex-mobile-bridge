@@ -6,6 +6,8 @@ const reader = readline.createInterface({ input: process.stdin });
 let draftId = 0;
 let turnId = 0;
 const threadSettings = new Map();
+let availableResets = 2;
+const usageResetKeys = new Set();
 const conflictThreads = new Set(String(process.env.FAKE_CODEX_CONFLICT_THREAD || "").split(",").filter(Boolean));
 const holdTurnThreads = new Set(String(process.env.FAKE_CODEX_HOLD_TURN_THREADS || "").split(",").filter(Boolean));
 const turnReleaseFile = process.env.FAKE_CODEX_TURN_RELEASE_FILE || "";
@@ -43,6 +45,29 @@ reader.on("line", (line) => {
         ],
       },
     ], nextCursor: null } });
+  } else if (method === "account/rateLimits/read") {
+    send({ id, result: {
+      accountId: "fixture-account",
+      rateLimits: {},
+      rateLimitResetCredits: {
+        availableCount: availableResets,
+        credits: availableResets === 2 ? [{ id: "fixture-reset-credit", status: "available" }] : null,
+      },
+    } });
+  } else if (method === "account/rateLimitResetCredit/consume") {
+    let outcome = "noCredit";
+    if (usageResetKeys.has(params.idempotencyKey)) {
+      outcome = "alreadyRedeemed";
+    } else if (availableResets > 0) {
+      if (params.creditId !== (availableResets === 2 ? "fixture-reset-credit" : undefined)) {
+        send({ id, error: { code: -32602, message: "Unexpected reset credit ID" } });
+        return;
+      }
+      availableResets -= 1;
+      usageResetKeys.add(params.idempotencyKey);
+      outcome = "reset";
+    }
+    send({ id, result: { outcome } });
   } else if (method === "threadSection/list") {
     send({ id, result: { data: [{ id: "section-pinned", name: "Pinned" }], nextCursor: null } });
   } else if (method === "thread/list") {

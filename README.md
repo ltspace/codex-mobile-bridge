@@ -68,6 +68,8 @@ Tailscale Serve, and prints the private HTTPS URL to open from your phone.
 - Switch between Codex and OpenClaw conversation lists, with Codex selected by
   default, then search and open either kind or create a new Codex conversation.
 - Archive the selected idle conversation from the top-bar action menu.
+- Open **More actions → Reset usage** to check and use a saved Codex reset
+  for the account signed in to the Bridge's Codex App Server.
 - Isolate archive work in a short-lived App Server process so slow recursive
   archiving does not block the main conversation channel.
 - Render responses with Markdown, clickable links, tables, and code blocks.

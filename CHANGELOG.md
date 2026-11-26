@@ -4,6 +4,9 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Check available Codex usage resets and redeem one after confirmation from
+  the top-bar action menu. Retries after an interrupted request reuse the same
+  redemption key.
 - Default new conversations to the last successfully associated project when it
   still exists; creating a projectless conversation does not erase that preference.
 - Select native desktop projects by name when creating conversations, or choose

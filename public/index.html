@@ -51,6 +51,12 @@
           </span>
           <span data-i18n="actions.refresh">Refresh</span>
         </button>
+        <button id="drawerUsageButton" class="drawer-action" type="button" aria-haspopup="dialog" aria-controls="usageModal">
+          <span class="drawer-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20.5 8.5A9 9 0 1 0 21 12M20.5 4.5v4h-4M12 8v4l2 2"></path></svg>
+          </span>
+          <span data-i18n="usage.title">Reset usage</span>
+        </button>
         <button id="drawerPinButton" class="drawer-action drawer-archive-action" type="button" disabled>
           <span class="drawer-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 3 8 0-1 7 4 4H5l4-4zM12 14v7"></path></svg></span>
           <span id="drawerPinLabel" data-i18n="actions.pin">Pin conversation</span>
@@ -180,6 +186,21 @@
       </div>
     </section>
   </div>
+
+  <dialog id="usageModal" class="modal" aria-labelledby="usageTitle">
+    <section class="modal-card">
+      <div class="modal-heading">
+        <div><h2 id="usageTitle" data-i18n="usage.title">Reset usage</h2></div>
+        <button id="closeUsage" class="icon-button" type="button" aria-label="Close" data-i18n-aria-label="actions.close" autofocus>×</button>
+      </div>
+      <p id="usageAvailability" class="usage-status" role="status"></p>
+      <p id="usageFeedback" class="usage-status hidden" role="status"></p>
+      <div class="modal-actions">
+        <button id="refreshUsage" type="button" data-i18n="actions.recheck">Check again</button>
+        <button id="resetUsage" class="primary" type="button" disabled>Reset usage</button>
+      </div>
+    </section>
+  </dialog>
 
   <div id="connectionModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="connectionTitle">
     <section class="modal-card status-card">
