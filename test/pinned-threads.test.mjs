@@ -206,7 +206,7 @@ test("new-project picker restores a valid remembered project and safely falls ba
 
 function browserFixture(api) {
   const node = (tag = "div") => ({
-    tag, children: [], attributes: {}, textContent: "", value: "", disabled: false,
+    tag, children: [], attributes: {}, dataset: {}, textContent: "", value: "", disabled: false,
     classList: { toggle() {} },
     setAttribute(key, value) { this.attributes[key] = value; },
     addEventListener() {},
@@ -215,17 +215,29 @@ function browserFixture(api) {
   });
   const state = {
     threadClient: "codex", threads: [], pinnedThreadIds: [], threadsCursor: null,
-    threadsLoading: false, threadsRequestVersion: 0, selected: { id: "selected" },
+    threadsLoading: false, threadsRequestVersion: 0, threadsSearch: "", unfilteredThreadList: null,
+    selected: { id: "selected" },
   };
   const elements = Object.fromEntries(["threadCount", "threadSearch", "threadList", "loadMoreThreads"].map((id) => [id, node()]));
+  const list = elements.threadList;
+  list.scrollTop = 0;
+  list.getBoundingClientRect = () => ({ top: 100 });
+  list.querySelectorAll = () => list.children.flatMap((child) => child.tag === "section" ? child.children : [child])
+    .filter((child) => child.tag === "button")
+    .map((button, index) => Object.assign(button, {
+      getBoundingClientRect() {
+        const top = 100 + index * 80 - list.scrollTop;
+        return { top, bottom: top + 80 };
+      },
+    }));
   const context = vm.createContext({
     state, elements, api, URLSearchParams, THREAD_PAGE_SIZE: 30, document: { createElement: node },
     t, titleOf: (thread) => thread.name, dateOf: () => "date", isThreadActive: () => false,
     threadData: (result) => result?.data || [], hideBanner() {},
     showBanner: (message) => { throw new Error(message); }, errorInfo: (error) => ({ message: error.message }),
-    selectThread: async (thread) => { state.selected = thread; }, listState: () => node(),
+    selectThread: async (thread) => { state.selected = thread; },
   });
-  vm.runInContext(appSource.slice(appSource.indexOf("function renderThreads()"), appSource.indexOf("function renderThreadClientSwitch()")), context);
+  vm.runInContext(appSource.slice(appSource.indexOf("function threadLists()"), appSource.indexOf("function renderThreadClientSwitch()")), context);
   return { context, state, elements };
 }
 
@@ -276,6 +288,64 @@ test("search restricts both groups and a superseded request cannot restore stale
   assert.equal(elements.threadList.children[0].textContent, t("threads.noMatches"));
 });
 
+test("clearing search restores loaded pages, the visible row and the pagination cursor", async () => {
+  let threads = Array.from({ length: 65 }, (_, index) => ({ id: `thread-${index}`, name: `Thread ${index}` }));
+  const calls = [];
+  let finishSearch;
+  const { context, state, elements } = browserFixture(async (path) => {
+    const url = new URL(path, "http://bridge");
+    const search = url.searchParams.get("search");
+    const cursor = url.searchParams.get("cursor");
+    calls.push({ search, cursor });
+    if (url.pathname === "/api/pinned-threads") return { data: search ? [] : [threads[0]] };
+    if (search === "slow search") return new Promise((resolve) => { finishSearch = resolve; });
+    if (search) return { data: [], nextCursor: null };
+    const start = cursor ? threads.findIndex((thread) => thread.id === cursor) + 1 : 0;
+    return {
+      data: threads.slice(start, start + 30),
+      nextCursor: start + 30 < threads.length ? threads[start + 29].id : null,
+    };
+  });
+  await context.loadThreads();
+  await context.loadThreads({ append: true });
+  elements.threadList.scrollTop = 40 * 80 + 23;
+  const position = context.threadListPosition();
+  assert.equal(position.threadId, "thread-40");
+  assert.equal(position.offset, -23);
+
+  elements.threadSearch.value = "no matches";
+  await context.loadThreads();
+  assert.equal(elements.threadList.children[0].textContent, t("threads.noMatches"));
+  threads = threads.filter((thread) => thread.id !== "thread-5");
+  context.removeThreadFromLists("thread-5");
+  elements.threadList.scrollTop = 0;
+
+  elements.threadSearch.value = "slow search";
+  const pending = context.loadThreads();
+  const requested = calls.length;
+  elements.threadSearch.value = "";
+  await context.loadThreads();
+  assert.equal(calls.length, requested, "reuse the loaded pages without issuing a list request");
+  assert.equal(state.threadsCursor, "thread-59");
+  assert.equal(state.threads.length, 59);
+  assert.deepEqual(Array.from(state.pinnedThreadIds), ["thread-0"]);
+  assert.equal(state.threads.some((thread) => thread.id === "thread-5"), false);
+  const restored = context.threadListPosition();
+  assert.equal(restored.threadId, position.threadId);
+  assert.equal(restored.offset, position.offset);
+  assert.equal(restored.scrollTop, position.scrollTop - 80, "keep the same row after an earlier row was archived");
+
+  finishSearch({ data: [{ id: "stale", name: "Stale result" }], nextCursor: "search-cursor" });
+  await pending;
+  assert.equal(state.threads.some((thread) => thread.id === "stale"), false);
+  await context.loadThreads({ refresh: true, preserveLoaded: true });
+  assert.equal(context.threadListPosition().threadId, position.threadId);
+  assert.equal(state.threadsCursor, "thread-59");
+  await context.loadThreads({ append: true });
+  assert.deepEqual(calls.at(-1), { search: null, cursor: "thread-59" });
+  assert.equal(state.threads.length, 64);
+});
+
 test("a new page can still show history while the older bridge awaits restart", async () => {
   const { context, state } = browserFixture(async (url) => {
     if (url.startsWith("/api/pinned-threads?")) throw Object.assign(new Error("Not found"), { status: 404 });
@@ -301,7 +371,8 @@ test("foreground return and reconnect reload both lists while preserving selecti
   handlers.online();
   context.document.hidden = true;
   handlers.visibilitychange();
-  assert.deepEqual(calls.map(({ preserveSelection, refresh }) => [preserveSelection, refresh]), [[true, true], [true, true]]);
+  assert.deepEqual(calls.map(({ preserveSelection, refresh, preserveLoaded }) => [preserveSelection, refresh, preserveLoaded]),
+    [[true, true, true], [true, true, true]]);
 });
 
 test("event stream reconnect refreshes desktop pins without doubling the initial load", () => {
@@ -321,5 +392,6 @@ test("event stream reconnect refreshes desktop pins without doubling the initial
   assert.equal(calls.length, 0);
   context.state.connection = "offline";
   context.state.eventStream.options.onOpen();
-  assert.deepEqual(calls.map(({ preserveSelection, refresh }) => [preserveSelection, refresh]), [[true, true]]);
+  assert.deepEqual(calls.map(({ preserveSelection, refresh, preserveLoaded }) => [preserveSelection, refresh, preserveLoaded]),
+    [[true, true, true]]);
 });
