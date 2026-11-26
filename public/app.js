@@ -423,7 +423,10 @@ function renderThreads() {
     cwd.className = "thread-meta thread-cwd";
     cwd.textContent = thread.cwd || t("threads.noCwd");
     button.append(line, meta, cwd);
-    button.addEventListener("click", () => selectThread(thread));
+    button.addEventListener("click", () => {
+      if (state.selected?.id === thread.id) closeDrawer();
+      else void selectThread(thread);
+    });
     return button;
   };
   const pinnedIds = new Set(state.pinnedThreadIds);
