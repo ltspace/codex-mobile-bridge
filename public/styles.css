@@ -307,6 +307,8 @@ body.action-drawer-open .action-drawer { opacity: 1; pointer-events: auto; trans
 .message.user .message-copy.copied { color: var(--user-text); }
 .message.agent { width: 100%; max-width: 780px; align-self: flex-start; border: 0; border-radius: 0; background: transparent; }
 .message.pending { opacity: .68; }
+.message.error { align-self: stretch; width: 100%; max-width: 780px; border-color: var(--banner-error-border); background: var(--danger-soft); color: var(--danger); }
+.message.error .message-head, .message.error .message-copy { color: inherit; }
 .message.queued { border-style: dashed; }
 .message-head { min-height: 31px; padding: 8px 11px 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .message-head span { flex: 1; }

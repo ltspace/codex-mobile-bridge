@@ -55,8 +55,23 @@ export function statusType(thread) {
   return typeof thread?.status === "string" ? thread.status : thread?.status?.type || "";
 }
 
-export function entriesFromTurns(result) {
+export function turnErrorEntry(turn) {
+  if (!turn?.error && turn?.status !== "failed") return null;
+  const message = textFrom(turn.error) || t("turn.codexFailed");
+  const details = turn.error?.additionalDetails;
+  return {
+    id: `turn-error:${turn.id || "current"}`,
+    turnId: turn.id || null,
+    role: "error",
+    text: typeof details === "string" && details && details !== message ? `${message}\n\n${details}` : message,
+    type: "turnError",
+    pending: false,
+  };
+}
+
+export function entriesFromTurns(result, knownEntries = []) {
   const turns = (result?.data || []).slice().reverse();
+  const knownErrors = new Map(knownEntries.filter((entry) => entry.type === "turnError").map((entry) => [entry.turnId, entry]));
   const entries = [];
   for (const turn of turns) {
     for (const [index, item] of (turn.items || []).entries()) {
@@ -73,6 +88,8 @@ export function entriesFromTurns(result) {
         pending: false,
       });
     }
+    const error = turn.error ? turnErrorEntry(turn) : knownErrors.get(turn.id) || turnErrorEntry(turn);
+    if (error) entries.push(error);
   }
   return entries;
 }

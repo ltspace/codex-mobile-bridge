@@ -123,7 +123,8 @@ export function createMessageView({ elements, state, toast, onLoadOlder, onLoadD
     const label = document.createElement("span");
     label.textContent = entry.queueId
       ? `${t("message.you")} · ${t(entry.reason === "desktop_delivery_unconfirmed" ? "message.deliveryUnconfirmed" : "message.queued")}`
-      : entry.role === "user" ? t("message.you") : "Codex";
+      : entry.role === "error" ? t(entry.type === "sendError" ? "message.sendFailed" : "turn.failed")
+        : entry.role === "user" ? t("message.you") : "Codex";
     const copy = document.createElement("button");
     copy.type = "button";
     copy.className = "message-copy";

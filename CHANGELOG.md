@@ -4,6 +4,9 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Keep usage-limit, unavailable-model and other turn failures visible in the
+  conversation, including live errors and reloaded history. Show send failures
+  without requiring tool details to be expanded.
 - Close the conversation sidebar without reloading or scrolling when its current
   conversation is selected again. Preserve loaded history, live text and drafts.
 - Start the watchdog at boot so the bridge recovers after a reboot without an
