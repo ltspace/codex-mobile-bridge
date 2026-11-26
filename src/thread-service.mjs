@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -335,6 +336,19 @@ export class ThreadService {
     }
   }
 
+  async projects() {
+    const data = [];
+    let cursor = null;
+    try {
+      do {
+        const page = await this.client.request("project/list", { limit: 100, sortKey: "position", ...(cursor ? { cursor } : {}) });
+        data.push(...(page.data || []));
+        cursor = page.nextCursor || null;
+      } while (cursor);
+      return { data: data.map(({ id, name, roots }) => ({ id, name, roots })) };
+    } catch (error) { throw rpcFailure(error); }
+  }
+
   async workspaces() {
     const result = await this.listThreads({ limit: 100 });
     const threads = result.data || result.threads || result.items || [];
@@ -384,7 +398,18 @@ export class ThreadService {
     return await persistedRolloutState(summary.path);
   }
 
-  async createThread({ cwd, ephemeral = false, model = null, effort = null }) {
+  async createThread({ cwd, projectId, ephemeral = false, model = null, effort = null }) {
+    if (projectId !== undefined) {
+      if (projectId !== null && (typeof projectId !== "string" || !projectId || projectId.length > 1024)) {
+        throw new BridgeError("Invalid project", { status: 400, code: "invalid_project" });
+      }
+      if (projectId === null) cwd = homedir();
+      else {
+        const project = (await this.projects()).data.find((project) => project.id === projectId);
+        if (!project?.roots?.[0]?.path) throw new BridgeError("Project unavailable", { status: 400, code: "invalid_project" });
+        cwd = project.roots[0].path;
+      }
+    }
     if (typeof cwd !== "string" || !cwd.trim() || cwd.length > 1024 || !isAbsolute(cwd.trim())) {
       throw new BridgeError("请选择一个有效的绝对目录", { status: 400, code: "invalid_cwd" });
     }
@@ -399,6 +424,7 @@ export class ThreadService {
     try {
       const result = await this.client.request("thread/start", {
         cwd: resolvedCwd,
+        ...(projectId !== undefined ? { projectId } : {}),
         approvalPolicy: this.approvalPolicy,
         sandbox: this.sandboxMode,
         ephemeral: ephemeral === true,

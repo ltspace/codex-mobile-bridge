@@ -4,6 +4,10 @@ All notable changes to Codex Mobile Bridge are documented here.
 
 ## Unreleased
 
+- Default new conversations to the last successfully associated project when it
+  still exists; creating a projectless conversation does not erase that preference.
+- Select native desktop projects by name when creating conversations, or choose
+  No project. Projectless conversations use the user home as their runtime directory.
 - Keep usage-limit, unavailable-model and other turn failures visible in the
   conversation, including live errors and reloaded history. Show send failures
   without requiring tool details to be expanded.

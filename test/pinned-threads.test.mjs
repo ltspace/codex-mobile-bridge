@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { homedir, tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { ThreadService } from "../src/thread-service.mjs";
 import { EventHub } from "../src/event-hub.mjs";
 import { t } from "../public/modules/i18n.js";
@@ -34,6 +36,29 @@ function serviceFixture() {
   const service = new ThreadService({ client, eventHub: new EventHub(), stateStore: {} });
   return { client, service };
 }
+
+test("new conversations use native project identity or explicitly remain projectless", async () => {
+  const client = new EventEmitter();
+  const calls = [];
+  client.request = async (method, params) => {
+    calls.push({ method, params });
+    if (method === "project/list") return params.cursor
+      ? { data: [{ id: "fictional-project", name: "Example project", roots: [{ path: tmpdir() }] }] }
+      : { data: [], nextCursor: "page-2" };
+    assert.equal(method, "thread/start");
+    return { thread: { id: "new-thread" } };
+  };
+  const service = new ThreadService({ client, eventHub: new EventHub(), stateStore: { addDraft() {} } });
+  assert.equal((await service.projects()).data[0].name, "Example project");
+  await service.createThread({ projectId: "fictional-project", cwd: "ignored" });
+  assert.equal(calls.at(-1).params.projectId, "fictional-project");
+  assert.equal(calls.at(-1).params.cwd, resolve(tmpdir()));
+  await service.createThread({ projectId: null, cwd: "ignored" });
+  assert.equal(calls.at(-1).params.projectId, null);
+  assert.equal(calls.at(-1).params.cwd, resolve(homedir()));
+  await assert.rejects(service.createThread({ projectId: "missing" }), { code: "invalid_project" });
+  await assert.rejects(service.createThread({ projectId: 123 }), { code: "invalid_project" });
+});
 
 test("pin mutations use the built-in pinned section across pages, validate state and report unavailable support", async () => {
   const { client, service } = serviceFixture();
@@ -146,6 +171,38 @@ test("missing or unsupported sections preserve ordinary history", async () => {
 });
 
 const appSource = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+
+test("new-project picker restores a valid remembered project and safely falls back", async () => {
+  let remembered = "project-b";
+  let fail = false;
+  const node = () => ({ classList: { remove() {} }, focus() {}, value: "", textContent: "" });
+  const elements = Object.fromEntries(["newThreadModal", "newThreadHint", "newCwd", "workspaceToggle"].map((key) => [key, node()]));
+  const context = vm.createContext({
+    elements, state: { selected: { projectId: "project-a" } }, recentWorkspaces: [],
+    localStorage: { getItem: () => remembered },
+    loadModels() {}, setWorkspaceOptionsOpen() {}, renderNewModelControls() {}, renderWorkspaceOptions() {},
+    t: (key) => key, matchMedia: () => ({ matches: false }),
+    errorInfo: (error) => ({ message: error.message }),
+    api: async () => {
+      if (fail) throw new Error("offline");
+      return { data: [{ id: "project-a", name: "Example A" }, { id: "project-b", name: "Example B" }] };
+    },
+  });
+  vm.runInContext(appSource.slice(appSource.indexOf("async function openNewThread()"), appSource.indexOf("function closeNewThread()")), context);
+  await context.openNewThread();
+  assert.equal(elements.newCwd.value, "project-b");
+  assert.equal(elements.newCwd.textContent, "Example B");
+  remembered = "deleted-project";
+  await context.openNewThread();
+  assert.equal(elements.newCwd.value, "");
+  assert.equal(elements.newCwd.textContent, "new.noProject");
+  remembered = null;
+  await context.openNewThread();
+  assert.equal(elements.newCwd.value, "project-a");
+  fail = true;
+  await context.openNewThread();
+  assert.equal(elements.newCwd.value, "");
+});
 
 function browserFixture(api) {
   const node = (tag = "div") => ({
